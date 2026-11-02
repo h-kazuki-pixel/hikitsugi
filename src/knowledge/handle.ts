@@ -11,7 +11,7 @@ import type { ReportEvent } from "../channels/report-event";
 import { jstDate } from "../lib/time";
 import type { SlackClient } from "../slack/api";
 import { isClosedDay } from "../views/StorePage";
-import { runHandoffAgent, type Decision, type ModelCall } from "./agent";
+import { d1Search, runHandoffAgent, type Decision, type ModelCall } from "./agent";
 import { createRuleCandidate, type RuleDrafter } from "../rules/candidate";
 import { answerText, sourceLabel } from "./search";
 
@@ -62,8 +62,8 @@ export async function handleQuestion(
   // DM は店舗が決まらないので、質問した人の主な店舗で探す
   const store = ctx.store ?? (await storeById(db, ctx.sender.home_store_id));
   const run = await runHandoffAgent(
-    db,
-    { storeId: store?.id ?? null, storeName: store?.name ?? "全店", senderName: ctx.sender.display_name, question: ev.text },
+    d1Search(db, store?.id ?? null),
+    { storeName: store?.name ?? "全店", senderName: ctx.sender.display_name, question: ev.text },
     deps.agent,
   );
   // 判断経路と消費を残す(質問の本文は出さない)

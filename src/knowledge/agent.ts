@@ -113,9 +113,14 @@ function hitForModel(h: KnowledgeHit) {
   };
 }
 
+export type SearchFn = (query: string) => Promise<KnowledgeHit[]>;
+
+// 引き継ぎ帳を D1 から探す(実稼働)。過去の質問の流し直しでは、その時点の知識だけを持つ検索に差し替える
+export const d1Search = (db: D1Database, storeId: string | null, asOf?: string): SearchFn => (query) => searchKnowledge(db, storeId, query, { asOf });
+
 export async function runHandoffAgent(
-  db: D1Database,
-  input: { storeId: string | null; storeName: string; senderName: string | null; question: string; asOf?: string },
+  search: SearchFn,
+  input: { storeName: string; senderName: string | null; question: string },
   call: ModelCall,
 ): Promise<AgentRun> {
   const seen = new Map<string, KnowledgeHit>();
@@ -172,7 +177,7 @@ export async function runHandoffAgent(
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const u of uses) {
       const query = String((u.input as { query?: unknown }).query ?? "");
-      const hits = await searchKnowledge(db, input.storeId, query, { asOf: input.asOf });
+      const hits = await search(query);
       for (const h of hits) seen.set(h.id, h);
       const body = JSON.stringify(hits.map(hitForModel));
       steps.push({ tool: "search_knowledge", input: { query }, result: `${hits.length}件: ${hits.map((h) => h.id).join(", ")}` });
