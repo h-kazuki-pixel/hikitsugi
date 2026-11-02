@@ -10,6 +10,7 @@
 
 import type { ReportEvent } from "../channels/report-event";
 import { jstDate } from "../lib/time";
+import { recordUsage } from "../lib/usage";
 import type { SlackClient } from "../slack/api";
 import { ensureBoard, markDone, markNeedsRecheck, resyncBoard } from "./board";
 import type { Resolver } from "./clarify";
@@ -130,12 +131,12 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
     rules: rules.map((r) => ({ no: r.rule_no, text: r.natural_text })),
   });
   // Claude 呼び出し1回あたりの消費を実測する(本文は出さない)
-  console.log(JSON.stringify({ claude: "structure", ...usage, images: images.length, categories: result.categories }));
+  await recordUsage(db, { kind: "structure", ...usage, images: images.length, store_id: store.id }, { categories: result.categories });
 
   // ルールの照合は別の呼び出し(写真つきで、有効な判断の基準があるときだけ)。構造化が拾った分と合わせる
   if (images.length && rules.length) {
     const check = await deps.checkRules({ storeName: store.name, text: ev.text, images, rules: rules.map((r) => ({ no: r.rule_no, text: r.natural_text })) });
-    console.log(JSON.stringify({ claude: "rule_check", ...check.usage, rules: rules.length, violated: check.result.filter((c) => c.violated).map((c) => c.rule_no) }));
+    await recordUsage(db, { kind: "rule_check", ...check.usage, images: images.length, store_id: store.id }, { rules: rules.length, violated: check.result.filter((c) => c.violated).map((c) => c.rule_no) });
     const seen = new Set(result.rule_matches.map((m) => m.rule_no));
     for (const c of check.result) {
       if (c.violated && !seen.has(c.rule_no)) result.rule_matches.push({ rule_no: c.rule_no, evidence: c.evidence });
@@ -354,7 +355,7 @@ async function processClarifyAnswer(
     answer: ev.text,
     toneSample: store.tone_sample,
   });
-  console.log(JSON.stringify({ claude: "clarify_answer", ...usage }));
+  await recordUsage(db, { kind: "clarify_answer", ...usage, store_id: store.id });
 
   const version = cur.version + 1;
   await db
@@ -438,7 +439,7 @@ async function settleRecheck(
         imagesUnreadable: 0,
         rules: [],
       });
-      console.log(JSON.stringify({ claude: "recheck_photo", ...again.usage, images: images.length }));
+      await recordUsage(db, { kind: "recheck_photo", ...again.usage, images: images.length, store_id: store.id });
       const still = again.result.leftover.filter((l) => pending.some((p) => p.area_id === l.area));
       await setDone(pending.map((p) => p.area_id).filter((a) => !still.some((l) => l.area === a)), "photo");
       if (!still.length) reply = { reply: doneReply, still: false };

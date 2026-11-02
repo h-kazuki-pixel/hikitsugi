@@ -8,6 +8,7 @@ import { claudeRuleDrafter } from "./rules/candidate";
 import { runMorning } from "./agent/morning";
 import { runNightCheck } from "./agent/night";
 import { jstDate } from "./lib/time";
+import { recordUsage } from "./lib/usage";
 import { claudeStructurer } from "./report/structure";
 import { claudeRuleChecker } from "./report/rulecheck";
 import { slackClient } from "./slack/api";
@@ -15,6 +16,7 @@ import { slack } from "./routes/slack";
 import { stores } from "./routes/stores";
 import { drafts } from "./routes/drafts";
 import { demo } from "./routes/demo";
+import { usage } from "./routes/usage";
 import { NotFoundPage } from "./views/StorePage";
 
 export const app = new Hono<{ Bindings: Env }>();
@@ -25,6 +27,7 @@ app.route("/", slack);
 app.route("/", stores);
 app.route("/", drafts);
 app.route("/", demo);
+app.route("/", usage);
 app.notFound((c) => c.html(<NotFoundPage />, 404));
 
 // 引き継ぎ帳のエージェントが使う Claude 呼び出し(テストでは差し替える)
@@ -85,7 +88,7 @@ export default {
               { storeId: st.id, storeName: st.name, date: jstDate(new Date(job.scheduledAt)).iso, now: job.scheduledAt, toneSample: st.tone_sample },
               { call: modelCall(env.ANTHROPIC_API_KEY), newId: () => crypto.randomUUID() },
             );
-            console.log(JSON.stringify({ claude: "night_check", store: st.id, ...out.usage, findings: out.findings.length, steps: out.path.map((p) => p.step) }));
+            await recordUsage(env.DB, { kind: "night_check", ...out.usage, store_id: st.id }, { findings: out.findings.length, steps: out.path.map((p) => p.step) });
           }
         } else {
           const out = await runMorning(env.DB, job.scheduledAt, { slack: env.SLACK_BOT_TOKEN ? slackClient(env.SLACK_BOT_TOKEN) : null });

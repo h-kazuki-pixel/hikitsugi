@@ -70,3 +70,15 @@ describe("jstDate", () => {
     expect(jstDate(new Date("2026-11-02T15:00:00Z")).label).toBe("11月3日(火)");
   });
 });
+
+describe("GET /usage", () => {
+  it("種類ごとの回数と1回あたりのトークンを出す(本文は持たない)", async () => {
+    await proxy.env.DB.prepare(
+      "INSERT INTO claude_usage (id, kind, model, input_tokens, output_tokens, images) VALUES ('u1', 'structure', 'claude-sonnet-5-5', 1800, 200, 1), ('u2', 'structure', 'claude-sonnet-5-5', 2200, 300, 1), ('u3', 'handoff_agent', 'claude-opus-5-5', 3000, 150, 0)",
+    ).run();
+    const html = await (await get("/usage")).text();
+    expect(html).toContain("報告の構造化(写真つき)");
+    expect(html).toMatch(/2回 \/ 1回あたり 入力 2,000・出力 250 トークン(<!-- -->)? \/ 写真 1枚/);
+    expect(html).toContain("引き継ぎ帳");
+  });
+});

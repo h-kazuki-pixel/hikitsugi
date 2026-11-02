@@ -9,6 +9,7 @@
 
 import type { ReportEvent } from "../channels/report-event";
 import { jstDate } from "../lib/time";
+import { recordUsage } from "../lib/usage";
 import type { SlackClient } from "../slack/api";
 import { isClosedDay } from "../views/StorePage";
 import { d1Search, runHandoffAgent, type Decision, type ModelCall } from "./agent";
@@ -67,7 +68,7 @@ export async function handleQuestion(
     deps.agent,
   );
   // 判断経路と消費を残す(質問の本文は出さない)
-  console.log(JSON.stringify({ claude: "handoff_agent", ...run.usage, decision: run.decision.type, steps: run.steps.map((s) => s.tool) }));
+  await recordUsage(db, { kind: "handoff_agent", ...run.usage, store_id: store?.id ?? null }, { decision: run.decision.type, steps: run.steps.map((s) => s.tool) });
 
   const closed = store ? isClosedDay(store.closed_days, jstDate(new Date(ev.sentAt))) : false;
   const reply = (text: string) =>

@@ -5,9 +5,10 @@
 // 下書きに失敗しても、オーナーの答えの原文を文面にして候補を作る(答えの記録とスタッフへの返事は止めない)。
 
 import Anthropic from "@anthropic-ai/sdk";
+import { recordUsage } from "../lib/usage";
 import { STRUCTURE_MODEL } from "../report/structure";
 
-export type RuleDraft = { natural_text: string };
+export type RuleDraft = { natural_text: string; usage?: { model: string; input_tokens: number; output_tokens: number } };
 export type RuleDrafter = (input: { storeName: string | null; question: string; answer: string }) => Promise<RuleDraft>;
 
 export function claudeRuleDrafter(apiKey: string): RuleDrafter {
@@ -38,11 +39,10 @@ export function claudeRuleDrafter(apiKey: string): RuleDrafter {
         { role: "user", content: `店舗: ${input.storeName ?? "全店"}\n質問: ${input.question}\n答え: ${input.answer}` },
       ],
     });
-    console.log(JSON.stringify({ claude: "rule_draft", model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens }));
     const block = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
     const text = String((block?.input as { natural_text?: unknown } | undefined)?.natural_text ?? "").trim();
     if (!text) throw new Error("ルール候補の文面が返りませんでした");
-    return { natural_text: text.slice(0, 60) };
+    return { natural_text: text.slice(0, 60), usage: { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens } };
   };
 }
 
@@ -61,7 +61,9 @@ export async function createRuleCandidate(
 
   let naturalText: string;
   try {
-    naturalText = (await deps.draftRule({ storeName: k.store_name, question: k.question, answer: answer.text })).natural_text;
+    const d = await deps.draftRule({ storeName: k.store_name, question: k.question, answer: answer.text });
+    naturalText = d.natural_text;
+    if (d.usage) await recordUsage(db, { kind: "rule_draft", ...d.usage, store_id: k.store_id });
   } catch (err) {
     console.error(`ルール候補の下書きに失敗したので、答えの原文を文面にします: ${err instanceof Error ? err.message : String(err)}`);
     naturalText = answer.text;
