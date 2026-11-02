@@ -78,6 +78,23 @@ jobs:
           node scripts/build-seed.mjs
           npx wrangler d1 execute DB --remote --env demo --file seed/demo.sql
 
+      # seed の架空の Slack ID(U_DEMO_… / C_DEMO_…)を、デモ用ワークスペースの実際の ID に結びつける。
+      # 実際の ID はリポジトリに置かず、demo 環境の Secret「DEMO_SLACK_IDS」から読む(形は scripts/ci/apply-demo-slack-ids.mjs)
+      - name: デモ用ワークスペースの Slack ID を結びつける(demo だけ。未登録なら飛ばす)
+        if: inputs.environment == 'demo'
+        env:
+          DEMO_SLACK_IDS: ${{ secrets.DEMO_SLACK_IDS }}
+        run: |
+          if [ -z "$DEMO_SLACK_IDS" ]; then
+            echo "::notice::DEMO_SLACK_IDS は未登録なので飛ばしました(demo)"
+            exit 0
+          fi
+          sql="$RUNNER_TEMP/demo-slack-ids.sql"
+          node scripts/ci/apply-demo-slack-ids.mjs "$sql"
+          if [ -s "$sql" ]; then
+            npx wrangler d1 execute DB --remote --env demo --file "$sql" > /dev/null
+          fi
+
       - name: wrangler deploy
         id: deploy
         run: |

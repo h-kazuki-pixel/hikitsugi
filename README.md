@@ -157,7 +157,9 @@ seed は `INSERT OR IGNORE` なので、何度流しても同じ結果になる(
 7. **署名つきで確かめ直す**: Slack のアプリ設定 → Event Subscriptions で、Request URL の横の Retry(または URL を入れ直す)を押し、Verified になることを確かめる。ここからは署名が正しいリクエストだけを受け付ける
 8. **ボットをチャンネルに招く**: デモ用ワークスペースの店舗チャンネルで `/invite @hikitsugi-demo` する
 
-チャンネルと店舗の結びつけ(seed の `slackチャンネル`)と、受信 → 分類 → 構造化 → スレッド返事 → 畳み込みは次の段階で作る。
+9. **実際の Slack ID を結びつける**: seed の Slack ID は架空の形(`U_DEMO_…` / `C_DEMO_…`)なので、デモ用ワークスペースの実際の ID を Environment `demo` の Secret `DEMO_SLACK_IDS` に登録する。1行に1つ `owner=U…` `aoi=U…` `haruto=U…` `sota=U…` `tenjin=C…` `yakuin=C…` の形(使える名前は `scripts/ci/apply-demo-slack-ids.mjs`)。人の ID はプロフィール → ⋮ → メンバー ID をコピー、チャンネルの ID はチャンネル名を押した画面の一番下。登録後に deploy-demo を実行すると、seed のあとに UPDATE で結びつける。実際の ID はリポジトリにコミットしない
+
+受信 → 分類 → 構造化 → スレッド返事 → 畳み込みは次の段階で作る。
 
 ## ローカルで動かす
 
