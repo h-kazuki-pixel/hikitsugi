@@ -4,6 +4,12 @@
 
 設計は [docs/設計書.md](docs/設計書.md) と [docs/仕様.md](docs/仕様.md)。
 
+## 開発での Claude Code の使い分け
+
+- フック: コミット前の実データ検査(下記)
+- サブエージェント: [.claude/agents/judge-reviewer.md](.claude/agents/judge-reviewer.md)。ハッカソンの審査員役として、審査基準(インパクト30 / デモ25 / Claudeの活用25 / 深さと実行20)でリポジトリと README を読み、弱点を指摘する。読み取り専用(Read / Grep / Glob のみ)で、ファイルは書き換えない。区切りごとに呼んで見直す
+- Skills: 場面の seed づくりと過去の質問の流し直し(必要になった時点で `.claude/skills/` に作る)
+
 ## コミット前の実データ検査(Claude Code フック)
 
 公開リポジトリに実データ(APIキー・トークン・メールアドレス・電話番号・Slack のユーザーID・第三者の実名)を入れないため、Claude Code が `git commit` を実行する前に差分を検査し、見つかればコミットを止める。
