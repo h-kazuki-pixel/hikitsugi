@@ -13,18 +13,21 @@ import { jstDate } from "../lib/time";
 import type { SlackClient } from "../slack/api";
 import { ensureBoard, markDone, resyncBoard } from "./board";
 import type { Resolver } from "./clarify";
+import type { ModelCall } from "../knowledge/agent";
+import { handleOwnerAnswer, handleQuestion, lookupPerson, type QuestionOutcome } from "../knowledge/handle";
 import { composeReply, type Structurer, type StructureResult } from "./structure";
 
 export type ProcessDeps = {
   structure: Structurer;
   resolve: Resolver;
+  agent: ModelCall; // 引き継ぎ帳のエージェント(claude-opus-5-5)
   slack: SlackClient;
   newId?: () => string;
 };
 
 export type ProcessOutcome =
   | { kind: "ignored"; reason: string }
-  | { kind: "not_report"; categories: string[]; findingId: string | null }
+  | { kind: "not_report"; categories: string[]; findingId: string | null; question?: QuestionOutcome }
   | {
       kind: "report";
       reportId: string;
@@ -33,7 +36,9 @@ export type ProcessOutcome =
       boardUpdated: number;
       replied: boolean;
       findingId: string | null;
+      question?: QuestionOutcome;
     }
+  | QuestionOutcome
   | { kind: "clarified"; reportId: string; version: number; areas: string[]; replied: boolean };
 
 const MAX_IMAGES = 4;
@@ -44,8 +49,16 @@ type Person = { id: string; display_name: string; role: "staff" | "sub" | "owner
 export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: ProcessDeps): Promise<ProcessOutcome> {
   const newId = deps.newId ?? (() => crypto.randomUUID());
 
-  // 引き継ぎ帳(DM の質問)は次の段階で扱う
-  if (ev.isDirect) return { kind: "ignored", reason: "direct_message" };
+  // ボットへの DM: スタッフ・副担当の質問か、オーナーが問い合わせのスレッドで答えたもの(引き継ぎ帳)
+  if (ev.isDirect) {
+    const person = await lookupPerson(db, ev.senderRef);
+    if (!person) return { kind: "ignored", reason: "unknown_sender" };
+    const kdeps = { slack: deps.slack, agent: deps.agent, newId };
+    if (ev.isReplyInThread) {
+      return person.role === "staff" ? { kind: "ignored", reason: "thread_reply" } : handleOwnerAnswer(db, ev, kdeps, person);
+    }
+    return person.role === "owner" ? { kind: "ignored", reason: "operator_post" } : handleQuestion(db, ev, kdeps, { store: null, sender: person });
+  }
 
   const store = await db
     .prepare("SELECT id, name, tone_sample FROM stores WHERE slack_channel_id = ?")
@@ -97,10 +110,16 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
 
   const isReport = result.categories.includes("cleaning_report");
   const hasTrouble = result.categories.includes("request_trouble") || !!result.trouble;
+  // 質問は引き継ぎ帳へ(報告と質問の両方に当たる投稿は両方)
+  const askQuestion = async () =>
+    result.categories.includes("question")
+      ? handleQuestion(db, ev, { slack: deps.slack, agent: deps.agent, newId }, { store: await storeRow(db, store.id), sender: await lookupPerson(db, ev.senderRef) })
+      : undefined;
 
   if (!isReport) {
     const findingId = hasTrouble ? await recordTrouble(db, deps, newId, store, sender, ev, result, null) : null;
-    return { kind: "not_report", categories: result.categories, findingId };
+    const question = await askQuestion();
+    return { kind: "not_report", categories: result.categories, findingId, ...(question ? { question } : {}) };
   }
 
   // 畳み込み: 同じ人が同じ店に、この送信の前 N 分以内に送った報告があれば、その畳み込み先に結ぶ
@@ -180,7 +199,12 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
     }
   }
 
-  return { kind: "report", reportId, mergedInto, areas: result.areas, boardUpdated, replied, findingId };
+  const question = await askQuestion();
+  return { kind: "report", reportId, mergedInto, areas: result.areas, boardUpdated, replied, findingId, ...(question ? { question } : {}) };
+}
+
+async function storeRow(db: D1Database, id: string) {
+  return db.prepare("SELECT id, name, closed_days FROM stores WHERE id = ?").bind(id).first<{ id: string; name: string; closed_days: string }>();
 }
 
 // 聞き返しへの答え: 報告した本人が、問いを載せた受付のスレッドで答えたら、版2を積んでボードを合わせ直す

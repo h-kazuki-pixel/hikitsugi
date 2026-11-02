@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env, Job } from "./env";
 import { accessGuard } from "./middleware/access-guard";
 import { processReportEvent } from "./report/process";
+import Anthropic from "@anthropic-ai/sdk";
 import { claudeResolver } from "./report/clarify";
 import { claudeStructurer } from "./report/structure";
 import { slackClient } from "./slack/api";
@@ -16,6 +17,12 @@ app.use("*", accessGuard);
 app.route("/", slack);
 app.route("/", stores);
 app.notFound((c) => c.html(<NotFoundPage />, 404));
+
+// 引き継ぎ帳のエージェントが使う Claude 呼び出し(テストでは差し替える)
+function modelCall(apiKey: string) {
+  const client = new Anthropic({ apiKey });
+  return (params: Anthropic.MessageCreateParamsNonStreaming) => client.messages.create(params);
+}
 
 // Cron は判断をしない。キューに積むだけ(設計書 7章)
 function slotOf(cron: string): "morning" | "night" {
@@ -46,6 +53,7 @@ export default {
           const outcome = await processReportEvent(env.DB, job.event, {
             structure: claudeStructurer(env.ANTHROPIC_API_KEY),
             resolve: claudeResolver(env.ANTHROPIC_API_KEY),
+            agent: modelCall(env.ANTHROPIC_API_KEY),
             slack: slackClient(env.SLACK_BOT_TOKEN),
           });
           console.log(JSON.stringify({ job: job.type, id: msg.id, outcome }));

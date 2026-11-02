@@ -44,6 +44,13 @@ function fakes(result: Partial<StructureResult>, answer: Partial<ResolveResult> 
       inputs.push(input);
       return { result: normalize(result, input.areas.map((a) => a.id)), usage: { model: "test-model", input_tokens: 1, output_tokens: 1 } };
     },
+    // 引き継ぎ帳のエージェント: このファイルでは常に「オーナーに聞く」を選ぶ(詳しくは knowledge.test.ts)
+    agent: async () =>
+      ({
+        id: "m", type: "message", role: "assistant", model: "fake", stop_reason: "tool_use", stop_sequence: null,
+        content: [{ type: "tool_use", id: "t", name: "ask_owner", input: { kind: "judgment", why: "test" } }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }) as never,
     resolve: async (input) => {
       resolveInputs.push(input);
       return { result: normalizeAnswer(answer, input.areas.map((a) => a.id)), usage: { model: "test-model", input_tokens: 1, output_tokens: 1 } };
@@ -166,12 +173,16 @@ describe("報告の処理", () => {
     expect(inputs).toEqual([]);
   });
 
-  it("報告でない投稿(質問・雑談)は原本を作らず、返事もしない", async () => {
-    const { deps, posted } = fakes({ categories: ["question"], areas: [], reply: "" });
-    const out = await processReportEvent(db(), toReportEvent(msg({ ts: ts(1200), text: "暖房上げていい?" }))!, deps);
-    expect(out).toEqual({ kind: "not_report", categories: ["question"], findingId: null });
-    expect(posted).toEqual([]);
+  it("報告でない投稿は原本を作らない。質問は引き継ぎ帳に回し、雑談には返事しない", async () => {
+    const q = fakes({ categories: ["question"], areas: [], reply: "" });
+    const out = await processReportEvent(db(), toReportEvent(msg({ ts: ts(1200), text: "窓って開けていい?" }))!, q.deps);
+    expect(out).toMatchObject({ kind: "not_report", categories: ["question"], findingId: null, question: { kind: "question", decision: "ask_owner" } });
+    expect(q.posted[0]).toMatchObject({ channel: "C_DEMO_TENJIN", thread: ts(1200) });
     expect(await db().prepare("SELECT 1 FROM reports WHERE message_ref = ?").bind(ts(1200)).first()).toBeNull();
+
+    const chat = fakes({ categories: ["other"], areas: [], reply: "" });
+    expect(await processReportEvent(db(), toReportEvent(msg({ ts: ts(1260), text: "今日寒いね" }))!, chat.deps)).toEqual({ kind: "not_report", categories: ["other"], findingId: null });
+    expect(chat.posted).toEqual([]);
   });
 
   it("トラブルは検出事項にし、オーナーに DM で知らせる(承認なし)", async () => {
@@ -184,10 +195,10 @@ describe("報告の処理", () => {
     expect(posted[0]!.text).toContain("ゴミ置き場に粗大ゴミが放置");
   });
 
-  it("知らないチャンネル・DM・スレッドの返事は今は扱わない", async () => {
+  it("知らないチャンネル・オーナーの DM・聞き返していないスレッドの返事は扱わない", async () => {
     const { deps } = fakes(REPORT);
     expect(await processReportEvent(db(), toReportEvent(msg({ channel: "C_DEMO_OTHER" }))!, deps)).toEqual({ kind: "ignored", reason: "unknown_channel" });
-    expect(await processReportEvent(db(), toReportEvent(msg({ channel_type: "im" }))!, deps)).toEqual({ kind: "ignored", reason: "direct_message" });
+    expect(await processReportEvent(db(), toReportEvent(msg({ channel_type: "im", user: "U_DEMO_OWNER" }))!, deps)).toEqual({ kind: "ignored", reason: "operator_post" });
     expect(await processReportEvent(db(), toReportEvent(msg({ thread_ts: ts(-60), ts: ts(30) }))!, deps)).toEqual({ kind: "ignored", reason: "thread_reply" });
   });
 });

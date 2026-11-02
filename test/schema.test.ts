@@ -18,8 +18,8 @@ describe("seed", () => {
       .prepare(
         `SELECT (SELECT count(*) FROM stores) AS stores, (SELECT count(*) FROM areas) AS areas,
                 (SELECT count(*) FROM staff WHERE role = 'staff') AS staff, (SELECT count(*) FROM staff) AS people,
-                (SELECT count(*) FROM knowledge WHERE status = 'answered') AS knowledge,
-                (SELECT count(*) FROM knowledge_answers) AS answers,
+                (SELECT count(*) FROM knowledge WHERE status = 'answered' AND question_ref LIKE 'seed:%') AS knowledge,
+                (SELECT count(*) FROM knowledge_answers WHERE answer_ref LIKE 'seed:%') AS answers,
                 (SELECT count(*) FROM rules WHERE status = 'active') AS rules`,
       )
       .first();

@@ -2,7 +2,7 @@
 // トークンはログに出さない。本文もログに出さない
 
 export type SlackClient = {
-  postMessage(channel: string, text: string, threadTs?: string): Promise<{ ok: boolean; ts?: string; error?: string }>;
+  postMessage(channel: string, text: string, threadTs?: string): Promise<{ ok: boolean; ts?: string; channel?: string; error?: string }>;
   fetchImage(url: string): Promise<{ base64: string; mediaType: string } | null>;
 };
 
@@ -26,7 +26,7 @@ export function slackClient(token: string): SlackClient {
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json; charset=utf-8" },
         body: JSON.stringify({ channel, text, thread_ts: threadTs, unfurl_links: false, unfurl_media: false }),
       });
-      const json = (await res.json()) as { ok: boolean; ts?: string; error?: string };
+      const json = (await res.json()) as { ok: boolean; ts?: string; channel?: string; error?: string };
       if (!json.ok) console.error(`chat.postMessage に失敗しました: ${json.error}`);
       return json;
     },
