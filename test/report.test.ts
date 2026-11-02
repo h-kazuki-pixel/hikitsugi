@@ -52,6 +52,7 @@ function fakes(result: Partial<StructureResult>, answer: Partial<ResolveResult> 
         usage: { input_tokens: 1, output_tokens: 1 },
       }) as never,
     draftRule: async () => ({ natural_text: "テストのルール" }),
+    checkRules: async () => ({ result: [], usage: { model: "t", input_tokens: 1, output_tokens: 1 } }),
     resolve: async (input) => {
       resolveInputs.push(input);
       return { result: normalizeAnswer(answer, input.areas.map((a) => a.id)), usage: { model: "test-model", input_tokens: 1, output_tokens: 1 } };
@@ -147,6 +148,14 @@ describe("報告の処理", () => {
     ]);
   });
 
+  it("5分以内の2通目(畳み込み)にも受付を返す。Claude が reply を空にしても補う(11/3 実機)", async () => {
+    const { deps, posted } = fakes({ ...REPORT, areas: ["tenjin_floor"], clarify_question: null, reply: "" });
+    const out = await processReportEvent(db(), toReportEvent(msg({ ts: ts(60), text: "床も" }))!, deps);
+    expect(out).toMatchObject({ kind: "report", replied: true });
+    expect(out.kind === "report" && out.mergedInto).toBeTruthy();
+    expect(posted[0]!.text).toBe("受け付けました。さっきの報告にまとめておきますね。");
+  });
+
   it("同じ送信が二度届いても一度しか処理しない", async () => {
     const { deps, posted } = fakes(REPORT);
     expect(await processReportEvent(db(), toReportEvent(msg())!, deps)).toEqual({ kind: "ignored", reason: "duplicate" });
@@ -159,7 +168,7 @@ describe("報告の処理", () => {
     const out = await processReportEvent(db(), toReportEvent(msg({ ts: ts(120), text: "ドリンクも" }))!, deps);
     expect(out).toMatchObject({ kind: "report", mergedInto: first!.id, boardUpdated: 1 });
     const n = await db().prepare("SELECT count(*) AS n FROM reports WHERE sender_ref = 'U_DEMO_AOI' AND sent_at LIKE '2026-11-01%'").first<{ n: number }>();
-    expect(n?.n).toBe(2);
+    expect(n?.n).toBe(3); // 最初の報告 + 畳み込みのテストの1通 + この1通
     const done = await db().prepare("SELECT done_report_id FROM board_items WHERE id = 'tenjin:2026-11-01:tenjin_drink'").first();
     expect(done).toEqual({ done_report_id: first!.id });
 
@@ -313,5 +322,15 @@ describe("汚れが残っている写真は完了にしない(11/3 実機: 紙�
     const out = await processReportEvent(db(), toReportEvent(msg({ thread_ts: mon(0), ts: mon(300), text: "拾いました!" }))!, deps);
     expect(out).toMatchObject({ kind: "clarified", version: 2 });
     expect(await db().prepare("SELECT status, recheck_note FROM board_items WHERE id = 'tenjin:2026-11-09:tenjin_toilet'").first()).toEqual({ status: "done", recheck_note: null });
+  });
+});
+
+describe("ルールの照合の整え方", () => {
+  it("渡した番号だけを残し、反しているのに根拠がないものは落とす", async () => {
+    const { normalizeRuleCheck } = await import("../src/report/rulecheck");
+    expect(normalizeRuleCheck([{ rule_no: 6, violated: true, evidence: "床に加湿器" }, { rule_no: 6, violated: true, evidence: "" }, { rule_no: 9, violated: true, evidence: "x" }, { rule_no: 7, violated: false, evidence: "" }], [6, 7])).toEqual([
+      { rule_no: 6, violated: true, evidence: "床に加湿器" },
+      { rule_no: 7, violated: false, evidence: "" },
+    ]);
   });
 });

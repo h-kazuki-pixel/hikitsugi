@@ -52,7 +52,11 @@ const TOOLS: Anthropic.Tool[] = [
       properties: {
         entry_id: { type: "string", description: "報告のない入室の id(read_entries の結果)" },
         rule_no: { type: "integer", description: "該当するルールの番号(動作が「下書きを作る」のもの)" },
-        reasoning: { type: "string", description: "なぜ未報告とみたか(1文。判断経路に出る)" },
+        reasoning: {
+          type: "string",
+          description:
+            "入室時刻と経過分はシステムが判断経路に書くので繰り返さない。それ以外に考えたこと(例: ほかの店への報告もない、前日も同じ)があれば1文。なければ空文字",
+        },
         body: {
           type: "string",
           description:
@@ -68,6 +72,14 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: { summary: { type: "string", description: "オーナー向けの一文の要約" } }, required: ["summary"] },
   },
 ];
+
+// Claude の理由がコードの書いた事実(入室時刻・経過分)の言い直しだけなら、判断経路に重ねて出さない
+export function reasoningNote(reasoning: string, name: string): string {
+  const r = reasoning.trim();
+  if (!r) return "";
+  const restates = /\d{1,2}:\d{2}/.test(r) && /\d+\s*分/.test(r) && r.includes(name);
+  return restates ? "" : r;
+}
 
 type Ctx = { storeId: string; storeName: string; date: string; now: string; toneSample: string | null };
 
@@ -192,7 +204,12 @@ export async function runNightCheck(db: D1Database, ctx: Ctx, deps: { call: Mode
       // この人の経路: 読んだツールまで(ほかの人の検出や断られた呼び出しは入れない)
       const steps: PathStep[] = [
         ...path.filter((p) => !p.step.includes("さん: 報告なし") && !p.step.endsWith("を断った")),
-        { step: "報告なし", detail: `${entry.name}さん ${hm(entry.unlocked_at)} に入室 → ${minutes}分たっても、そのあとの報告がない。${String(input.reasoning ?? "")}` },
+        {
+          step: "報告なし",
+          detail: [`${entry.name}さん ${hm(entry.unlocked_at)} に入室 → ${minutes}分たっても、そのあとの報告がない。`, reasoningNote(String(input.reasoning ?? ""), entry.name)]
+            .filter(Boolean)
+            .join(""),
+        },
         { step: `ルール${rule.rule_no}に該当`, detail: `「${rule.natural_text}」(由来: ${ruleOrigin(rule)})` },
         { step: "声かけ文を下書き", detail: "オーナーの承認待ち。承認するまでスタッフには送らない" },
       ];

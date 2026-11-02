@@ -9,6 +9,7 @@ import { runMorning } from "./agent/morning";
 import { runNightCheck } from "./agent/night";
 import { jstDate } from "./lib/time";
 import { claudeStructurer } from "./report/structure";
+import { claudeRuleChecker } from "./report/rulecheck";
 import { slackClient } from "./slack/api";
 import { slack } from "./routes/slack";
 import { stores } from "./routes/stores";
@@ -60,6 +61,7 @@ export default {
           }
           const outcome = await processReportEvent(env.DB, job.event, {
             structure: claudeStructurer(env.ANTHROPIC_API_KEY),
+            checkRules: claudeRuleChecker(env.ANTHROPIC_API_KEY),
             resolve: claudeResolver(env.ANTHROPIC_API_KEY),
             agent: modelCall(env.ANTHROPIC_API_KEY),
             draftRule: claudeRuleDrafter(env.ANTHROPIC_API_KEY),
