@@ -366,18 +366,63 @@ async function processClarifyAnswer(
   const boardDate = jstDate(new Date(report.sent_at)).iso;
   const rootId = report.merged_into_report_id ?? report.id;
   await resyncBoard(db, store.id, boardDate, rootId);
-  // 「拾ってもらえますか」に「拾いました」と答えたら、要確認の箇所を完了にする
-  if (result.leftover_cleared) {
-    await db
-      .prepare(
-        `UPDATE board_items SET status = 'done', recheck_note = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-          WHERE store_id = ? AND date = ? AND status = 'needs_recheck' AND done_report_id = ?`,
-      )
-      .bind(store.id, boardDate, rootId)
-      .run();
+  // 要確認の箇所の扱い(11/3 オーナーの判断: 申告は信じるが、根拠を区別して見せる)
+  //   返事に写真がある → もう一度見て、汚れが消えていれば完了(根拠: 写真)、まだ見えれば要確認のまま
+  //   文だけで「拾いました」 → 完了(根拠: 本人の申告)
+  let reply = result.reply;
+  const { results: pending } = await db
+    .prepare("SELECT area_id FROM board_items WHERE store_id = ? AND date = ? AND status = 'needs_recheck' AND done_report_id = ?")
+    .bind(store.id, boardDate, rootId)
+    .all<{ area_id: string }>();
+  const setDone = (areaIds: string[], basis: "staff_word" | "photo") =>
+    areaIds.length
+      ? db
+          .prepare(
+            `UPDATE board_items SET status = 'done', recheck_note = NULL, done_basis = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+              WHERE store_id = ? AND date = ? AND status = 'needs_recheck' AND done_report_id = ? AND area_id IN (${areaIds.map(() => "?").join(", ")})`,
+          )
+          .bind(basis, store.id, boardDate, rootId, ...areaIds)
+          .run()
+      : Promise.resolve();
+  if (pending.length && ev.images.length) {
+    const images: { base64: string; mediaType: string }[] = [];
+    for (const img of ev.images.slice(0, MAX_IMAGES)) {
+      const got = await deps.slack.fetchImage(img.url).catch(() => null);
+      if (got) images.push(got);
+    }
+    if (images.length) {
+      const again = await deps.structure({
+        storeName: store.name,
+        areas: areas.filter((a) => pending.some((p) => p.area_id === a.id)),
+        senderName: null,
+        toneSample: store.tone_sample,
+        text: ev.text,
+        images,
+        imagesUnreadable: 0,
+        rules: [],
+      });
+      console.log(JSON.stringify({ claude: "recheck_photo", ...again.usage, images: images.length }));
+      const still = again.result.leftover.filter((l) => pending.some((p) => p.area_id === l.area));
+      await setDone(pending.map((p) => p.area_id).filter((a) => !still.some((l) => l.area === a)), "photo");
+      for (const l of still) {
+        await db
+          .prepare("UPDATE board_items SET recheck_note = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE store_id = ? AND date = ? AND area_id = ? AND status = 'needs_recheck'")
+          .bind(l.what, store.id, boardDate, l.area)
+          .run();
+      }
+      if (still.length) {
+        const seen = still.map((l) => `${areas.find((a) => a.id === l.area)?.name ?? l.area}の${l.what}`).join("、");
+        // 聞き返しは1回だけ。重ねて頼まず、残したことだけ伝える
+        reply = `ありがとう。写真ではまだ${seen}が見えるので、要確認のまま残しておきます。`;
+      }
+    } else if (result.leftover_cleared) {
+      await setDone(pending.map((p) => p.area_id), "staff_word");
+    }
+  } else if (pending.length && result.leftover_cleared) {
+    await setDone(pending.map((p) => p.area_id), "staff_word");
   }
 
-  const res = await deps.slack.postMessage(ev.channelRef, result.reply, ev.threadRef).catch(() => ({ ok: false }));
+  const res = await deps.slack.postMessage(ev.channelRef, reply, ev.threadRef).catch(() => ({ ok: false }));
   return { kind: "clarified", reportId: report.id, version, areas: result.areas, replied: res.ok };
 }
 

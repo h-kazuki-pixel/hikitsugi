@@ -23,7 +23,7 @@ export async function markNeedsRecheck(db: D1Database, storeId: string, date: st
     const res = await db
       .prepare(
         `UPDATE board_items
-            SET status = 'needs_recheck', done_report_id = ?, recheck_note = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+            SET status = 'needs_recheck', done_report_id = ?, recheck_note = ?, done_basis = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
           WHERE store_id = ? AND date = ? AND area_id = ?`,
       )
       .bind(reportId, it.what, storeId, date, it.area)
@@ -39,14 +39,15 @@ export async function markDone(
   date: string,
   areaIds: string[],
   reportId: string,
+  opts: { keepRecheck?: boolean } = {},
 ): Promise<number> {
   if (areaIds.length === 0) return 0;
   const placeholders = areaIds.map(() => "?").join(", ");
   const res = await db
     .prepare(
       `UPDATE board_items
-          SET status = 'done', done_report_id = ?, recheck_note = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-        WHERE store_id = ? AND date = ? AND status <> 'done' AND area_id IN (${placeholders})`,
+          SET status = 'done', done_report_id = ?, recheck_note = NULL, done_basis = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+        WHERE store_id = ? AND date = ? AND status <> 'done'${opts.keepRecheck ? " AND status <> 'needs_recheck'" : ""} AND area_id IN (${placeholders})`,
     )
     .bind(reportId, storeId, date, ...areaIds)
     .run();
@@ -73,7 +74,8 @@ export async function resyncBoard(db: D1Database, storeId: string, date: string,
     )
     .bind(storeId, date, rootReportId, ...areas)
     .run();
-  await markDone(db, storeId, date, areas, rootReportId);
+  // 要確認は版を積み直しただけでは完了にしない(完了にするのは、拾ったと分かったときだけ)
+  await markDone(db, storeId, date, areas, rootReportId, { keepRecheck: true });
 }
 
 // 朝の繰り越し(仕様 5章「朝: 前日の未清掃を繰り越し、今日のボードを生成」)

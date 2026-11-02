@@ -321,7 +321,36 @@ describe("汚れが残っている写真は完了にしない(11/3 実機: 紙�
     const { deps } = fakes(DIRTY, { areas: ["tenjin_toilet", "tenjin_trash"], confidence: 0.95, leftover_cleared: true, reply: "ありがとう!トイレも完了で記録しました。" });
     const out = await processReportEvent(db(), toReportEvent(msg({ thread_ts: mon(0), ts: mon(300), text: "拾いました!" }))!, deps);
     expect(out).toMatchObject({ kind: "clarified", version: 2 });
-    expect(await db().prepare("SELECT status, recheck_note FROM board_items WHERE id = 'tenjin:2026-11-09:tenjin_toilet'").first()).toEqual({ status: "done", recheck_note: null });
+    expect(await db().prepare("SELECT status, recheck_note, done_basis FROM board_items WHERE id = 'tenjin:2026-11-09:tenjin_toilet'").first()).toEqual({
+      status: "done",
+      recheck_note: null,
+      done_basis: "staff_word",
+    });
+  });
+
+  it("返事に写真があればもう一度見る: 消えていれば完了(写真で確認)、まだ見えれば要確認のまま残し、重ねて頼まない", async () => {
+    const wed = (o: number) => (Date.UTC(2026, 10, 11, 9, 0) / 1000 + o).toFixed(6);
+    const photo: Partial<SlackMessageEvent> = { subtype: "file_share", files: [{ id: "F60", mimetype: "image/jpeg", thumb_1024: "https://files.example/after" }] };
+    // 1件目: 要確認 → 写真つきの返事で、汚れが消えている
+    await processReportEvent(db(), toReportEvent(msg({ ...photo, ts: wed(0), text: "" }))!, fakes(DIRTY).deps);
+    const clean = fakes({ ...DIRTY, leftover: [] }, { areas: ["tenjin_toilet", "tenjin_trash"], leftover_cleared: true, reply: "ありがとう!完了で記録しました。" });
+    await processReportEvent(db(), toReportEvent(msg({ ...photo, thread_ts: wed(0), ts: wed(120), text: "拾いました" }))!, clean.deps);
+    expect(await db().prepare("SELECT status, done_basis FROM board_items WHERE id = 'tenjin:2026-11-11:tenjin_toilet'").first()).toEqual({ status: "done", done_basis: "photo" });
+    expect(clean.posted.at(-1)!.text).toBe("ありがとう!完了で記録しました。");
+
+    // 2件目(翌日): 要確認 → 写真つきの返事で、まだ紙くずが見える
+    const thu = (o: number) => (Date.UTC(2026, 10, 12, 9, 0) / 1000 + o).toFixed(6);
+    await processReportEvent(db(), toReportEvent(msg({ ...photo, ts: thu(0), text: "" }))!, fakes(DIRTY).deps);
+    const dirty = fakes({ ...DIRTY, leftover: [{ area: "tenjin_toilet", what: "便器の右側に紙くず" }] }, { areas: ["tenjin_toilet", "tenjin_trash"], leftover_cleared: true, reply: "ありがとう!" });
+    await processReportEvent(db(), toReportEvent(msg({ ...photo, thread_ts: thu(0), ts: thu(120), text: "拾いました" }))!, dirty.deps);
+    expect(await db().prepare("SELECT status, recheck_note, done_basis FROM board_items WHERE id = 'tenjin:2026-11-12:tenjin_toilet'").first()).toEqual({
+      status: "needs_recheck",
+      recheck_note: "便器の右側に紙くず",
+      done_basis: null,
+    });
+    const last = dirty.posted.at(-1)!.text;
+    expect(last).toBe("ありがとう。写真ではまだトイレの便器の右側に紙くずが見えるので、要確認のまま残しておきます。");
+    expect(last).not.toMatch(/[?？]/);
   });
 });
 
