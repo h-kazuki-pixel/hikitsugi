@@ -1,5 +1,8 @@
 import { Layout } from "./Layout";
 import type { JstDate } from "../lib/time";
+import { DemoPanel, DraftsSection, type DraftRow } from "./DraftsSection";
+import { FindingsSection, type FindingRow } from "./FindingsSection";
+import { RulesSection, type RuleRow } from "./RulesSection";
 
 export type StoreRow = {
   id: string;
@@ -12,6 +15,7 @@ export type StoreRow = {
 export type BoardRow = {
   area_name: string;
   status: "done" | "pending" | "carried_over" | "no_assignee";
+  carried_from_date?: string | null;
 };
 
 const CLEANING_TYPE_LABEL = { daily: "毎日の店", weekly: "週次巡回の店" } as const;
@@ -26,7 +30,7 @@ export function isClosedDay(closedDaysJson: string, today: JstDate): boolean {
   }
 }
 
-export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: JstDate; isDemo: boolean }) {
+export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: JstDate; isDemo: boolean; rules?: RuleRow[]; findings?: FindingRow[]; drafts?: DraftRow[]; demoStaff?: { id: string; display_name: string }[] }) {
   const { store, board, today, isDemo } = props;
   const closed = isClosedDay(store.closed_days, today);
   return (
@@ -57,12 +61,25 @@ export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: Js
             {board.map((b) => (
               <li>
                 <span>{b.area_name}</span>
-                <span class={`status ${b.status}`}>{STATUS_LABEL[b.status]}</span>
+                <span class={`status ${b.status}`}>
+                  {STATUS_LABEL[b.status]}
+                  {b.status === "carried_over" && b.carried_from_date
+                    ? `(${Number(b.carried_from_date.slice(5, 7))}/${Number(b.carried_from_date.slice(8, 10))}から)`
+                    : ""}
+                </span>
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      <DraftsSection storeId={store.id} drafts={props.drafts ?? []} />
+
+      <FindingsSection findings={props.findings ?? []} />
+
+      <RulesSection storeId={store.id} rules={props.rules ?? []} />
+
+      {isDemo && <DemoPanel storeId={store.id} staff={props.demoStaff ?? []} />}
     </Layout>
   );
 }

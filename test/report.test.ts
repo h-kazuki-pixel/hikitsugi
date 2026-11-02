@@ -3,7 +3,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { toReportEvent, type SlackMessageEvent } from "../src/channels/slack";
 import { processReportEvent, type ProcessDeps } from "../src/report/process";
-import { normalize, type StructureInput, type StructureResult } from "../src/report/structure";
+import { composeReply, normalize, singleQuestion, type StructureInput, type StructureResult } from "../src/report/structure";
+import { normalizeAnswer, type ResolveInput, type ResolveResult } from "../src/report/clarify";
 import type { SlackClient } from "../src/slack/api";
 import { demoEnv } from "./helpers";
 
@@ -24,9 +25,10 @@ function msg(over: Partial<SlackMessageEvent> = {}): SlackMessageEvent {
   return { type: "message", user: "U_DEMO_AOI", channel: "C_DEMO_TENJIN", channel_type: "channel", text: "トイレとゴミ終わりました", ts: ts(0), ...over };
 }
 
-function fakes(result: Partial<StructureResult>) {
+function fakes(result: Partial<StructureResult>, answer: Partial<ResolveResult> = {}) {
   const posted: { channel: string; text: string; thread?: string }[] = [];
   const inputs: StructureInput[] = [];
+  const resolveInputs: ResolveInput[] = [];
   const slack: SlackClient = {
     async postMessage(channel, text, thread) {
       posted.push({ channel, text, thread });
@@ -42,8 +44,20 @@ function fakes(result: Partial<StructureResult>) {
       inputs.push(input);
       return { result: normalize(result, input.areas.map((a) => a.id)), usage: { model: "test-model", input_tokens: 1, output_tokens: 1 } };
     },
+    // 引き継ぎ帳のエージェント: このファイルでは常に「オーナーに聞く」を選ぶ(詳しくは knowledge.test.ts)
+    agent: async () =>
+      ({
+        id: "m", type: "message", role: "assistant", model: "fake", stop_reason: "tool_use", stop_sequence: null,
+        content: [{ type: "tool_use", id: "t", name: "ask_owner", input: { kind: "judgment", why: "test" } }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }) as never,
+    draftRule: async () => ({ natural_text: "テストのルール" }),
+    resolve: async (input) => {
+      resolveInputs.push(input);
+      return { result: normalizeAnswer(answer, input.areas.map((a) => a.id)), usage: { model: "test-model", input_tokens: 1, output_tokens: 1 } };
+    },
   };
-  return { deps, posted, inputs };
+  return { deps, posted, inputs, resolveInputs };
 }
 
 const REPORT: Partial<StructureResult> = {
@@ -81,6 +95,33 @@ describe("Slack アダプタ", () => {
   });
 });
 
+describe("聞き返しは1つだけ(仕様 4章)", () => {
+  it("11/3 の実機で起きた2つの問いを、最初の1つに切る", () => {
+    const r = normalize(
+      {
+        categories: ["cleaning_report"],
+        areas: ["tenjin_trash"],
+        confidence: 0.6,
+        clarify_question: "ゴミ置き場で合ってますか?ドリンク周りもやっていたら教えてください。",
+        reply: "おつかれさまです!ゴミ置き場、受け付けました。ゴミ置き場で合ってますか?ドリンク周りもやっていたら教えて",
+      },
+      ["tenjin_trash"],
+    );
+    expect(r.clarify_question).toBe("ゴミ置き場で合ってますか?");
+    expect(r.reply).toBe("おつかれさまです!ゴミ置き場、受け付けました。");
+    const text = composeReply(r);
+    expect(text).toBe("おつかれさまです!ゴミ置き場、受け付けました。\nゴミ置き場で合ってますか?");
+    expect(text.match(/[?？]/g)).toHaveLength(1);
+  });
+
+  it("全角の疑問符も1つで切り、問いがなければ受付だけ返す", () => {
+    expect(singleQuestion("2階は階段のことですか？ 3階もですか？")).toBe("2階は階段のことですか？");
+    expect(singleQuestion("  ")).toBeNull();
+    expect(composeReply({ reply: "おつかれさま。受け付けました。", clarify_question: null })).toBe("おつかれさま。受け付けました。");
+    expect(composeReply({ reply: "", clarify_question: "合ってますか?" })).toBe("");
+  });
+});
+
 describe("報告の処理", () => {
   it("清掃報告: 原本と版1を積み、ボードを完了にし、スレッドに受付を返す", async () => {
     const { deps, posted, inputs } = fakes(REPORT);
@@ -89,7 +130,9 @@ describe("報告の処理", () => {
 
     expect(out).toMatchObject({ kind: "report", mergedInto: null, areas: ["tenjin_toilet", "tenjin_trash"], boardUpdated: 2, replied: true });
     expect(inputs[0]).toMatchObject({ storeName: "サンプル自習室 天神店", senderName: "あおい", images: [{ mediaType: "image/jpeg" }] });
-    expect(posted).toEqual([{ channel: "C_DEMO_TENJIN", text: REPORT.reply, thread: ts(0) }]);
+    expect(posted).toEqual([
+      { channel: "C_DEMO_TENJIN", text: "おつかれさま。トイレとゴミ、受け付けました。\nトイレットペーパーが残り1つに見えますが、合ってますか?", thread: ts(0) },
+    ]);
 
     if (out.kind !== "report") throw new Error();
     const cur = await db().prepare("SELECT sender_staff_id, version, areas, basis, image_ids FROM reports_current WHERE id = ?").bind(out.reportId).first();
@@ -131,12 +174,16 @@ describe("報告の処理", () => {
     expect(inputs).toEqual([]);
   });
 
-  it("報告でない投稿(質問・雑談)は原本を作らず、返事もしない", async () => {
-    const { deps, posted } = fakes({ categories: ["question"], areas: [], reply: "" });
-    const out = await processReportEvent(db(), toReportEvent(msg({ ts: ts(1200), text: "暖房上げていい?" }))!, deps);
-    expect(out).toEqual({ kind: "not_report", categories: ["question"], findingId: null });
-    expect(posted).toEqual([]);
+  it("報告でない投稿は原本を作らない。質問は引き継ぎ帳に回し、雑談には返事しない", async () => {
+    const q = fakes({ categories: ["question"], areas: [], reply: "" });
+    const out = await processReportEvent(db(), toReportEvent(msg({ ts: ts(1200), text: "窓って開けていい?" }))!, q.deps);
+    expect(out).toMatchObject({ kind: "not_report", categories: ["question"], findingId: null, question: { kind: "question", decision: "ask_owner" } });
+    expect(q.posted[0]).toMatchObject({ channel: "C_DEMO_TENJIN", thread: ts(1200) });
     expect(await db().prepare("SELECT 1 FROM reports WHERE message_ref = ?").bind(ts(1200)).first()).toBeNull();
+
+    const chat = fakes({ categories: ["other"], areas: [], reply: "" });
+    expect(await processReportEvent(db(), toReportEvent(msg({ ts: ts(1260), text: "今日寒いね" }))!, chat.deps)).toEqual({ kind: "not_report", categories: ["other"], findingId: null });
+    expect(chat.posted).toEqual([]);
   });
 
   it("トラブルは検出事項にし、オーナーに DM で知らせる(承認なし)", async () => {
@@ -149,10 +196,77 @@ describe("報告の処理", () => {
     expect(posted[0]!.text).toContain("ゴミ置き場に粗大ゴミが放置");
   });
 
-  it("知らないチャンネル・DM・スレッドの返事は今は扱わない", async () => {
+  it("知らないチャンネル・オーナーの DM・聞き返していないスレッドの返事は扱わない", async () => {
     const { deps } = fakes(REPORT);
     expect(await processReportEvent(db(), toReportEvent(msg({ channel: "C_DEMO_OTHER" }))!, deps)).toEqual({ kind: "ignored", reason: "unknown_channel" });
-    expect(await processReportEvent(db(), toReportEvent(msg({ channel_type: "im" }))!, deps)).toEqual({ kind: "ignored", reason: "direct_message" });
-    expect(await processReportEvent(db(), toReportEvent(msg({ thread_ts: ts(0), ts: ts(30) }))!, deps)).toEqual({ kind: "ignored", reason: "thread_reply" });
+    expect(await processReportEvent(db(), toReportEvent(msg({ channel_type: "im", user: "U_DEMO_OWNER" }))!, deps)).toEqual({ kind: "ignored", reason: "operator_post" });
+    expect(await processReportEvent(db(), toReportEvent(msg({ thread_ts: ts(-60), ts: ts(30) }))!, deps)).toEqual({ kind: "ignored", reason: "thread_reply" });
+  });
+});
+
+describe("聞き返しへの答えで版2を積む(仕様 4章)", () => {
+  // 2026-11-02 18:25 JST。上の報告と日付を分ける
+  const day = (offsetSec: number) => ts(86_400 + offsetSec);
+  const sota = (over: Partial<SlackMessageEvent> = {}) => msg({ user: "U_DEMO_SOTA", ts: day(0), text: "", ...over });
+  const ASKED: Partial<StructureResult> = {
+    categories: ["cleaning_report"],
+    areas: ["tenjin_trash"],
+    confidence: 0.55,
+    clarify_question: "ゴミ置き場で合ってますか?",
+    reply: "おつかれさまです。ゴミ置き場、受け付けました。",
+  };
+  const board = async () =>
+    (await db().prepare("SELECT area_id, status FROM board_items WHERE store_id = 'tenjin' AND date = '2026-11-02' AND status = 'done' ORDER BY area_id").all()).results;
+
+  it("聞き返しを送れたら、1報告に1回だけ記録する", async () => {
+    const out = await processReportEvent(db(), toReportEvent(sota({ subtype: "file_share", files: [{ id: "F20", mimetype: "image/jpeg", thumb_1024: "https://files.example/y" }] }))!, fakes(ASKED).deps);
+    if (out.kind !== "report") throw new Error();
+    const c = await db().prepare("SELECT question, asked_ref FROM clarifications WHERE report_id = ?").bind(out.reportId).first();
+    expect(c).toEqual({ question: "ゴミ置き場で合ってますか?", asked_ref: "1.0" });
+    expect(await board()).toEqual([{ area_id: "tenjin_trash", status: "done" }]);
+  });
+
+  it("本人以外のスレッドの返事では版を積まない", async () => {
+    const { deps, resolveInputs } = fakes(ASKED, { areas: ["tenjin_drink"] });
+    const out = await processReportEvent(db(), toReportEvent(msg({ user: "U_DEMO_HARUTO", thread_ts: day(0), ts: day(60), text: "それドリンクだよ" }))!, deps);
+    expect(out).toEqual({ kind: "ignored", reason: "not_reporter" });
+    expect(resolveInputs).toEqual([]);
+  });
+
+  it("本人の答えで版2を積み、ボードを合わせ直し、問わずにお礼を返す", async () => {
+    const { deps, posted, resolveInputs } = fakes(ASKED, {
+      areas: ["tenjin_drink"],
+      confidence: 0.95,
+      reply: "ありがとうございます、ドリンク周りで記録しました。ほかにもありますか?",
+    });
+    const out = await processReportEvent(db(), toReportEvent(sota({ thread_ts: day(0), ts: day(90), text: "いえ、ドリンク周りです" }))!, deps);
+    expect(out).toMatchObject({ kind: "clarified", version: 2, areas: ["tenjin_drink"], replied: true });
+    expect(resolveInputs[0]).toMatchObject({ question: "ゴミ置き場で合ってますか?", answer: "いえ、ドリンク周りです", imageCount: 1, current: { areas: ["tenjin_trash"] } });
+
+    // 答えへの返事では問わない(聞き返しは1回だけ)
+    expect(posted).toEqual([{ channel: "C_DEMO_TENJIN", text: "ありがとうございます、ドリンク周りで記録しました。", thread: day(0) }]);
+
+    if (out.kind !== "clarified") throw new Error();
+    const versions = await db().prepare("SELECT version, areas, basis, basis_ref FROM report_versions WHERE report_id = ? ORDER BY version").bind(out.reportId).all();
+    expect(versions.results).toEqual([
+      { version: 1, areas: '["tenjin_trash"]', basis: "structuring", basis_ref: null },
+      { version: 2, areas: '["tenjin_drink"]', basis: "staff_reply", basis_ref: day(90) },
+    ]);
+    expect(await board()).toEqual([{ area_id: "tenjin_drink", status: "done" }]);
+  });
+
+  it("答えが反映された後のスレッドの投稿では版を積まない", async () => {
+    const { deps, resolveInputs } = fakes(ASKED, { areas: ["tenjin_floor"] });
+    const out = await processReportEvent(db(), toReportEvent(sota({ thread_ts: day(0), ts: day(120), text: "あ、床もです" }))!, deps);
+    expect(out).toEqual({ kind: "ignored", reason: "already_answered" });
+    expect(resolveInputs).toEqual([]);
+  });
+
+  it("聞き返していない報告のスレッドの返事は扱わない", async () => {
+    const r = await processReportEvent(db(), toReportEvent(sota({ ts: day(900), text: "トイレ終わりました" }))!, fakes({ ...ASKED, areas: ["tenjin_toilet"], clarify_question: null }).deps);
+    expect(r).toMatchObject({ kind: "report" });
+    const { deps, resolveInputs } = fakes(ASKED);
+    expect(await processReportEvent(db(), toReportEvent(sota({ thread_ts: day(900), ts: day(960), text: "了解です" }))!, deps)).toEqual({ kind: "ignored", reason: "thread_reply" });
+    expect(resolveInputs).toEqual([]);
   });
 });

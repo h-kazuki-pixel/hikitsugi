@@ -19,6 +19,7 @@ export type StructureInput = {
   text: string;
   images: { base64: string; mediaType: string }[];
   imagesUnreadable: number; // 取り出せなかった写真の枚数
+  rules: { no: number; text: string }[]; // 有効な「判断の基準」のルール(写真・本文と照合する)
 };
 
 export type StructureResult = {
@@ -30,6 +31,7 @@ export type StructureResult = {
   confidence: number;
   clarify_question: string | null;
   reply: string;
+  rule_matches: { rule_no: number; evidence: string }[];
 };
 
 export type StructureUsage = { model: string; input_tokens: number; output_tokens: number };
@@ -38,7 +40,7 @@ export type Structurer = (input: StructureInput) => Promise<{ result: StructureR
 
 const CATEGORIES: Category[] = ["cleaning_report", "question", "request_trouble", "other"];
 
-function tool(areaIds: string[]): Anthropic.Tool {
+function tool(areaIds: string[], ruleNos: number[]): Anthropic.Tool {
   return {
     name: "record_post",
     description: "店舗チャンネルの投稿を分類し、清掃報告なら構造化して記録する",
@@ -66,15 +68,29 @@ function tool(areaIds: string[]): Anthropic.Tool {
         confidence: { type: "number", minimum: 0, maximum: 1, description: "構造化の確信度" },
         clarify_question: {
           type: ["string", "null"],
-          description: "確信が持てない点があるときだけ、スタッフに1回だけ聞く短い質問(例: 「トイレットペーパーが残り1つに見えますが、合ってますか?」)。なければ null",
+          description:
+            "報告された内容に確信が持てない点があるときだけ、その1点を確かめる質問を1文で(例: 「トイレットペーパーが残り1つに見えますが、合ってますか?」)。疑問符は1つだけ。報告にない箇所や作業を尋ねない(「〜もやっていたら教えて」は不可)。迷う点が複数あっても、記録に一番効く1点だけにする。なければ null",
+        },
+        rule_matches: {
+          type: "array",
+          description:
+            "判断の基準のルールに反している様子が写真や本文から確かに分かるときだけ入れる(例: 机上のみ可のルールがあり、床に置かれた加湿器が写っている)。見えないこと・推測は入れない。なければ空",
+          items: {
+            type: "object",
+            properties: {
+              rule_no: ruleNos.length ? { type: "integer", enum: ruleNos } : { type: "integer" },
+              evidence: { type: "string", description: "何が写っている・書かれているか(1文。人を責める書き方にしない)" },
+            },
+            required: ["rule_no", "evidence"],
+          },
         },
         reply: {
           type: "string",
           description:
-            "清掃報告のときだけ、スレッドに返す受付の文。ねぎらい + 受け付けた箇所 + (あれば)聞き返し。1〜2文。責めない。清掃報告でなければ空文字",
+            "清掃報告のときだけ、スレッドに返す受付の文。ねぎらい + 受け付けた箇所を1〜2文。質問は入れない(聞き返しは clarify_question に書くと、システムが後ろにつなげて送る)。責めない。清掃報告でなければ空文字",
         },
       },
-      required: ["categories", "areas", "supplies_out", "trouble", "memo", "confidence", "clarify_question", "reply"],
+      required: ["categories", "areas", "supplies_out", "trouble", "memo", "confidence", "clarify_question", "rule_matches", "reply"],
     },
   };
 }
@@ -91,9 +107,17 @@ function system(input: StructureInput): string {
     "",
     "決まりごと:",
     "- 写真は清掃後の様子として見る。写っている場所から清掃箇所を判定する。写真から分かる備品の残量・汚れ・ゴミの放置も拾う",
-    "- 読み取れないことを推測で埋めない。迷ったら confidence を下げ、聞くべきことが1つあれば clarify_question にする",
-    "- 受付の文はスタッフへの返事。ねぎらいを先に、短く、責めない。オーナーの口調に寄せる",
+    "- 読み取れないことを推測で埋めない。迷ったら confidence を下げる",
+    "- 聞き返しは1回、1つだけ。報告された内容のうち確かめないと記録が誤る1点だけを clarify_question に書く。報告にない箇所や作業を尋ねない。確かめることがなければ null",
+    "- 受付の文(reply)はスタッフへの返事。ねぎらいを先に、短く、責めない。オーナーの口調に寄せる。reply には質問を書かない",
     input.toneSample ? `- オーナーの口調の例: 「${input.toneSample}」` : "",
+    ...(input.rules.length
+      ? [
+          "",
+          "判断の基準(オーナーが承認したルール。写真・本文がこれに反していないかを見る。反していても受付の文では触れない):",
+          ...input.rules.map((r) => `- ルール${r.no}: ${r.text}`),
+        ]
+      : []),
   ]
     .filter((l) => l !== "")
     .join("\n");
@@ -116,7 +140,10 @@ function userContent(input: StructureInput): Anthropic.ContentBlockParam[] {
 export function claudeStructurer(apiKey: string): Structurer {
   const client = new Anthropic({ apiKey });
   return async (input) => {
-    const t = tool(input.areas.map((a) => a.id));
+    const t = tool(
+      input.areas.map((a) => a.id),
+      input.rules.map((r) => r.no),
+    );
     const res = await client.messages.create({
       model: STRUCTURE_MODEL,
       max_tokens: 1024,
@@ -129,15 +156,45 @@ export function claudeStructurer(apiKey: string): Structurer {
     const block = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
     if (!block) throw new Error("構造化の結果が返りませんでした");
     return {
-      result: normalize(block.input as Partial<StructureResult>, input.areas.map((a) => a.id)),
+      result: normalize(
+        block.input as Partial<StructureResult>,
+        input.areas.map((a) => a.id),
+        input.rules.map((r) => r.no),
+      ),
       usage: { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens },
     };
   };
 }
 
+// 聞き返しは1つだけ(仕様 4章「1回だけ聞き返す」)。モデルが2つ書いても、最初の問い1つに切る
+export function singleQuestion(q: string | null | undefined): string | null {
+  const t = (q ?? "").trim();
+  if (!t) return null;
+  const m = t.match(/^[^?？]*[?？]/);
+  return (m ? m[0] : t).trim() || null;
+}
+
+// 受付の文から問いと「教えて」の文を落とす(スタッフに尋ねるのは clarify_question の1つだけにするため)
+function withoutQuestions(reply: string): string {
+  const sentences = reply.match(/[^。！!?？\n]+[。！!?？]?/g) ?? [];
+  return sentences
+    .filter((s) => !/[?？]$/.test(s.trim()) && !/教えて/.test(s))
+    .join("")
+    .trim();
+}
+
+// スレッドに返す文: 受付 + (あれば)聞き返し1つ
+export function composeReply(result: Pick<StructureResult, "reply" | "clarify_question">): string {
+  const ack = result.reply;
+  const q = result.clarify_question;
+  if (!ack) return "";
+  return q ? `${ack}\n${q}` : ack;
+}
+
 // モデルの出力を DB に入れられる形に整える(知らない箇所 ID や範囲外の値は落とす)
-export function normalize(raw: Partial<StructureResult>, areaIds: string[]): StructureResult {
+export function normalize(raw: Partial<StructureResult>, areaIds: string[], ruleNos: number[] = []): StructureResult {
   const known = new Set(areaIds);
+  const rules = new Set(ruleNos);
   const categories = (raw.categories ?? []).filter((c): c is Category => CATEGORIES.includes(c as Category));
   const conf = typeof raw.confidence === "number" ? Math.min(1, Math.max(0, raw.confidence)) : 0.5;
   return {
@@ -147,7 +204,11 @@ export function normalize(raw: Partial<StructureResult>, areaIds: string[]): Str
     trouble: raw.trouble?.trim() || null,
     memo: raw.memo?.trim() || null,
     confidence: conf,
-    clarify_question: raw.clarify_question?.trim() || null,
-    reply: (raw.reply ?? "").trim(),
+    clarify_question: singleQuestion(raw.clarify_question),
+    reply: withoutQuestions((raw.reply ?? "").trim()),
+    // 照合に渡したルールの番号だけを残す(知らない番号は捨てる)
+    rule_matches: (raw.rule_matches ?? [])
+      .filter((m) => m && rules.has(Number(m.rule_no)) && typeof m.evidence === "string" && m.evidence.trim())
+      .map((m) => ({ rule_no: Number(m.rule_no), evidence: m.evidence.trim() })),
   };
 }

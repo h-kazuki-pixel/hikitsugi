@@ -2,10 +2,18 @@ import { Hono } from "hono";
 import type { Env, Job } from "./env";
 import { accessGuard } from "./middleware/access-guard";
 import { processReportEvent } from "./report/process";
+import Anthropic from "@anthropic-ai/sdk";
+import { claudeResolver } from "./report/clarify";
+import { claudeRuleDrafter } from "./rules/candidate";
+import { runMorning } from "./agent/morning";
+import { runNightCheck } from "./agent/night";
+import { jstDate } from "./lib/time";
 import { claudeStructurer } from "./report/structure";
 import { slackClient } from "./slack/api";
 import { slack } from "./routes/slack";
 import { stores } from "./routes/stores";
+import { drafts } from "./routes/drafts";
+import { demo } from "./routes/demo";
 import { NotFoundPage } from "./views/StorePage";
 
 export const app = new Hono<{ Bindings: Env }>();
@@ -14,7 +22,15 @@ export const app = new Hono<{ Bindings: Env }>();
 app.use("*", accessGuard);
 app.route("/", slack);
 app.route("/", stores);
+app.route("/", drafts);
+app.route("/", demo);
 app.notFound((c) => c.html(<NotFoundPage />, 404));
+
+// 引き継ぎ帳のエージェントが使う Claude 呼び出し(テストでは差し替える)
+function modelCall(apiKey: string) {
+  const client = new Anthropic({ apiKey });
+  return (params: Anthropic.MessageCreateParamsNonStreaming) => client.messages.create(params);
+}
 
 // Cron は判断をしない。キューに積むだけ(設計書 7章)
 function slotOf(cron: string): "morning" | "night" {
@@ -44,12 +60,34 @@ export default {
           }
           const outcome = await processReportEvent(env.DB, job.event, {
             structure: claudeStructurer(env.ANTHROPIC_API_KEY),
+            resolve: claudeResolver(env.ANTHROPIC_API_KEY),
+            agent: modelCall(env.ANTHROPIC_API_KEY),
+            draftRule: claudeRuleDrafter(env.ANTHROPIC_API_KEY),
             slack: slackClient(env.SLACK_BOT_TOKEN),
           });
           console.log(JSON.stringify({ job: job.type, id: msg.id, outcome }));
+        } else if (job.slot === "night") {
+          if (!env.ANTHROPIC_API_KEY) {
+            console.error("ANTHROPIC_API_KEY が未設定のため、夜の突き合わせを行えません");
+            msg.ack();
+            continue;
+          }
+          const { results: storeRows } = await env.DB.prepare(
+            "SELECT id, name, tone_sample FROM stores WHERE ? IS NULL OR id = ? ORDER BY id",
+          )
+            .bind(job.storeId ?? null, job.storeId ?? null)
+            .all<{ id: string; name: string; tone_sample: string | null }>();
+          for (const st of storeRows) {
+            const out = await runNightCheck(
+              env.DB,
+              { storeId: st.id, storeName: st.name, date: jstDate(new Date(job.scheduledAt)).iso, now: job.scheduledAt, toneSample: st.tone_sample },
+              { call: modelCall(env.ANTHROPIC_API_KEY), newId: () => crypto.randomUUID() },
+            );
+            console.log(JSON.stringify({ claude: "night_check", store: st.id, ...out.usage, findings: out.findings.length, steps: out.path.map((p) => p.step) }));
+          }
         } else {
-          // 現場エージェント(定時)は次の段階で実装する
-          console.log(JSON.stringify({ job: job.type, id: msg.id }));
+          const out = await runMorning(env.DB, job.scheduledAt, { slack: env.SLACK_BOT_TOKEN ? slackClient(env.SLACK_BOT_TOKEN) : null });
+          console.log(JSON.stringify({ job: job.type, slot: job.slot, id: msg.id, stores_with_news: out.lines.length, sent: out.sent }));
         }
         msg.ack();
       } catch (err) {

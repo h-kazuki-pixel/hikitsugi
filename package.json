@@ -13,7 +13,8 @@
     "seed:demo": "npm run seed:build && wrangler d1 execute DB --remote --env demo --file seed/demo.sql",
     "deploy:demo": "wrangler deploy --env demo",
     "migrate:production": "wrangler d1 migrations apply DB --remote --env production",
-    "deploy:production": "wrangler deploy --env production"
+    "deploy:production": "wrangler deploy --env production",
+    "replay": "tsx scripts/replay/run.ts"
   },
   "engines": {
     "node": ">=20"
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261102.1",
     "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
     "typescript": "5.9",
     "vitest": "^3.2.7",
     "wrangler": "^4.156.1"
