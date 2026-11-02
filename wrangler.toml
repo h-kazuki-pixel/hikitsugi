@@ -25,7 +25,7 @@ ENVIRONMENT = "demo"
 [[env.demo.d1_databases]]
 binding = "DB"
 database_name = "hikitsugi-demo"
-database_id = "988307e9-007c-412d-a2e1-0129282d69ea"
+database_id = "bc511d8e-74b4-4a1e-a09f-960e18580fa2"
 migrations_dir = "migrations"
 
 [[env.demo.queues.producers]]
