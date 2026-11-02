@@ -77,7 +77,7 @@ function fakes(turns: Block[][], structured: Partial<StructureResult> = { catego
     },
     draftRule: async (input) => {
       drafted.push(input);
-      return { natural_text: "忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX" };
+      return { natural_text: "忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX" };
     },
     structure: async (input) => {
       structureInputs.push(input);
@@ -181,28 +181,28 @@ describe("知らない質問 → 確認中 → オーナーに一度だけ → �
     // 11/8(日)21:00 JST
     const sunday = (Date.UTC(2026, 10, 8, 12, 0) / 1000).toFixed(6);
     const { deps, posted, requests, drafted } = fakes([]);
-    const ev = toReportEvent({ type: "message", user: "U_DEMO_OWNER", channel: ownerAsk.channel, channel_type: "im", ts: sunday, thread_ts: ownerAsk.ts, text: "財布や携帯などの貴重品は、スタッフだけが開けられる16番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。" })!;
+    const ev = toReportEvent({ type: "message", user: "U_DEMO_OWNER", channel: ownerAsk.channel, channel_type: "im", ts: sunday, thread_ts: ownerAsk.ts, text: "財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。" })!;
     const out = await processReportEvent(db(), ev, deps);
     expect(out).toMatchObject({ kind: "owner_answer", knowledgeId, repliedToStaff: true, ruleCandidate: { ruleNo: 6 } });
     expect(requests).toEqual([]); // 答えを積むのに引き継ぎ帳のエージェントは呼ばない
-    expect(drafted).toEqual([{ storeName: "サンプル自習室 天神店", question: "席に財布が置きっぱなしだけど、どうすればいい?", answer: "財布や携帯などの貴重品は、スタッフだけが開けられる16番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。" }]);
+    expect(drafted).toEqual([{ storeName: "サンプル自習室 天神店", question: "席に財布が置きっぱなしだけど、どうすればいい?", answer: "財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。" }]);
 
     expect(posted[0]).toMatchObject({
       channel: "C_DEMO_TENJIN",
       thread: ts(600),
-      text: "オーナーから答えが来ました。\n財布や携帯などの貴重品は、スタッフだけが開けられる16番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。(11/8 デモオーナーの回答)",
+      text: "オーナーから答えが来ました。\n財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。(11/8 デモオーナーの回答)",
     });
     // 確認中に同じことを聞いていたはるとにも返る(オーナーには一度しか聞いていない)
     expect(posted[1]).toMatchObject({ channel: "D_DEMO_HARUTO", thread: ts(900), text: posted[0]!.text });
     expect(posted[2]).toMatchObject({ channel: "D_DEMO_OWNER", thread: ownerAsk.ts });
     expect(posted[2]!.text).toBe(
-      "みおさんに返し、引き継ぎ帳に残しました。(同じことを聞いていた1人にも返しました)\n判断の答えなので、ルール候補にしました: ルール6「忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX」\n店舗ページで承認すると、次から報告・写真の検出と引き継ぎ帳の答えの基準になります。",
+      "みおさんに返し、引き継ぎ帳に残しました。(同じことを聞いていた1人にも返しました)\n判断の答えなので、ルール候補にしました: ルール6「忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX」\n店舗ページで承認すると、次から報告・写真の検出と引き継ぎ帳の答えの基準になります。",
     );
 
     const k = await db().prepare("SELECT status FROM knowledge WHERE id = ?").bind(knowledgeId).first();
     expect(k).toEqual({ status: "answered" });
     const a = await db().prepare("SELECT answer, answered_by_staff_id, answered_at, answer_ref FROM knowledge_answers WHERE knowledge_id = ?").bind(knowledgeId).all();
-    expect(a.results).toEqual([{ answer: "財布や携帯などの貴重品は、スタッフだけが開けられる16番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。", answered_by_staff_id: "staff_owner", answered_at: "2026-11-08T12:00:00.000Z", answer_ref: sunday }]);
+    expect(a.results).toEqual([{ answer: "財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。", answered_by_staff_id: "staff_owner", answered_at: "2026-11-08T12:00:00.000Z", answer_ref: sunday }]);
   });
 
   it("次からは引き継ぎ帳が出典つきで答える", async () => {
@@ -212,7 +212,7 @@ describe("知らない質問 → 確認中 → オーナーに一度だけ → �
     ]);
     const out = await processReportEvent(db(), toReportEvent(dm({ user: "U_DEMO_HARUTO", channel: "D_DEMO_HARUTO", ts: ts(86_400 * 2), text: "席に財布が置きっぱなしだけど、どうすればいい?" }))!, deps);
     expect(out).toMatchObject({ kind: "question", decision: "answer", knowledgeId });
-    expect(posted[0]!.text).toBe("財布や携帯などの貴重品は、スタッフだけが開けられる16番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。(11/8 デモオーナーの回答)");
+    expect(posted[0]!.text).toBe("財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。(11/8 デモオーナーの回答)");
   });
 
   it("問い合わせ以外のスレッドでのオーナーの返事・オーナーからの DM は扱わない", async () => {
@@ -239,9 +239,9 @@ describe("判断の答えはルール候補になり、承認でだけ有効に�
     expect(r).toMatchObject({ status: "candidate", origin: "knowledge", action: "judgment_basis", activated_at: null });
     const html = await page();
     expect(html).toContain("この答えをルールにしますか");
-    expect(html).toContain("ルール6「忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX」");
+    expect(html).toContain("ルール6「忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX」");
     expect(html).toContain("席に財布が置きっぱなしだけど、どうすればいい?(11/7 みおさん)");
-    expect(html).toContain("財布や携帯などの貴重品は、スタッフだけが開けられる16番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。(11/8 デモオーナー)");
+    expect(html).toContain("財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。(11/8 デモオーナー)");
   });
 
   it("承認するとルール一覧に由来つきで並ぶ(面談のルールと同じ一覧)", async () => {
@@ -312,17 +312,17 @@ describe("翌週の清掃報告: 承認したルールに照らして検出し�
     const out = await processReportEvent(db(), ev, deps);
 
     // 照合に渡すのは有効な「判断の基準」のルールだけ(面談の通知ルールは渡さない)
-    expect(structureInputs[0]!.rules).toEqual([{ no: 6, text: "忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX" }]);
-    expect(ruleCheckInputs[0]).toMatchObject({ storeName: "サンプル自習室 天神店", rules: [{ no: 6, text: "忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX" }] });
+    expect(structureInputs[0]!.rules).toEqual([{ no: 6, text: "忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX" }]);
+    expect(ruleCheckInputs[0]).toMatchObject({ storeName: "サンプル自習室 天神店", rules: [{ no: 6, text: "忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX" }] });
     expect(ruleCheckInputs[0]!.images).toHaveLength(1);
     expect(out).toMatchObject({ kind: "report", ruleFindings: [{ ruleNo: 6 }] });
 
     // スタッフには受付と、元になったオーナーの回答をそのまま(文はコードが組む。11/3 橋本: 見つけた本人がその場でしまえる)
     expect(posted.find((p) => p.channel === "C_DEMO_TENJIN")!.text).toBe(
-      "おつかれさま。床・デスク、受け付けました。\nデスクの上にスマートフォンが残っているようです。前にオーナーが答えたやり方です:「財布や携帯などの貴重品は、スタッフだけが開けられる16番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。」(11/8 デモオーナーの回答)",
+      "おつかれさま。床・デスク、受け付けました。\nデスクの上にスマートフォンが残っているようです。前にオーナーが答えたやり方です:「財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。」(11/8 デモオーナーの回答)",
     );
     const dmToOwner = posted.find((p) => p.channel === "U_DEMO_OWNER")!;
-    expect(dmToOwner.text).toContain("ルール6「忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX」に当たりそうな様子がありました(11/7 のスタッフの質問から生まれたルール)");
+    expect(dmToOwner.text).toContain("ルール6「忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX」に当たりそうな様子がありました(11/7 のスタッフの質問から生まれたルール)");
 
     if (out.kind !== "report") throw new Error();
     const f = await db().prepare("SELECT kind, rule_ids, reasoning_path FROM findings WHERE id = ?").bind(out.ruleFindings[0]!.findingId).first<{ kind: string; rule_ids: string; reasoning_path: string }>();
@@ -330,7 +330,7 @@ describe("翌週の清掃報告: 承認したルールに照らして検出し�
     const path = JSON.parse(f!.reasoning_path) as { step: string; detail: string }[];
     expect(path.map((p) => p.step)).toEqual(["投稿を受け取る", "写真と本文を読む", "ルール6に該当", "ルールの由来", "見えたこと", "対応"]);
     expect(path[0]!.detail).toBe("はるとさんの投稿(送信 11/12 19:30)");
-    expect(path[3]!.detail).toBe("引き継ぎ帳: 11/7 みおさんの質問「席に財布が置きっぱなしだけど、どうすればいい?」→ 11/8 デモオーナーの回答「財布や携帯などの貴重品は、スタッフだけが開けられる16番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。」");
+    expect(path[3]!.detail).toBe("引き継ぎ帳: 11/7 みおさんの質問「席に財布が置きっぱなしだけど、どうすればいい?」→ 11/8 デモオーナーの回答「財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。」");
 
     const html = await (await app.request("/stores/tenjin", {}, proxy.env)).text();
     expect(html).toContain("ルールに該当");
@@ -343,7 +343,7 @@ describe("有効なルールも出典つきの判断として返す(仕様 2章)
   it("検索にルールが出て、選ぶとルールの原文と由来を返す", async () => {
     const hits = await searchKnowledge(db(), "tenjin", "忘れ物 財布 どうすれば");
     const rule = hits.find((h) => h.source_type === "rule" && h.rule_no === 6);
-    expect(rule).toMatchObject({ answer: "忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX", question: "席に財布が置きっぱなしだけど、どうすればいい?", answered_by: "デモオーナー" });
+    expect(rule).toMatchObject({ answer: "忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX", question: "席に財布が置きっぱなしだけど、どうすればいい?", answered_by: "デモオーナー" });
 
     const { deps, posted } = fakes([
       [use("search_knowledge", { query: "忘れ物 スマホ" })],
@@ -351,7 +351,7 @@ describe("有効なルールも出典つきの判断として返す(仕様 2章)
     ]);
     const out = await processReportEvent(db(), toReportEvent(dm({ user: "U_DEMO_MIO", channel: "D_DEMO_MIO", ts: ts(86_400 * 7), text: "忘れ物のスマホってどこにしまえばいい?" }))!, deps);
     expect(out).toMatchObject({ kind: "question", decision: "answer" });
-    expect(posted[0]!.text).toBe("ルール6「忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX」(11/8 デモオーナーの回答から)");
+    expect(posted[0]!.text).toBe("ルール6「忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX」(11/8 デモオーナーの回答から)");
   });
 
   it("面談のルールは「立ち上げ面談で決めたこと」として返す", async () => {

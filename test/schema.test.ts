@@ -150,10 +150,10 @@ describe("引き継ぎ帳: 回答は追記のみ、出典は必須", () => {
 
   it("引き継ぎ帳から生まれるルールは、元の質問と回答を指す", async () => {
     await expect(
-      run("INSERT INTO rules (id, rule_no, natural_text, action, origin, status) VALUES ('rule_x', 99, '忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX', 'judgment_basis', 'knowledge', 'candidate')"),
+      run("INSERT INTO rules (id, rule_no, natural_text, action, origin, status) VALUES ('rule_x', 99, '忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX', 'judgment_basis', 'knowledge', 'candidate')"),
     ).rejects.toThrow();
     await run(
-      "INSERT INTO rules (id, rule_no, natural_text, action, origin, origin_knowledge_id, origin_answer_id, status) VALUES ('rule_6', 106, '忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX', 'judgment_basis', 'knowledge', 'k_humid', 'ka_h1', 'candidate')",
+      "INSERT INTO rules (id, rule_no, natural_text, action, origin, origin_knowledge_id, origin_answer_id, status) VALUES ('rule_6', 106, '忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX', 'judgment_basis', 'knowledge', 'k_humid', 'ka_h1', 'candidate')",
     );
   });
 });
