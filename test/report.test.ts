@@ -153,7 +153,7 @@ describe("報告の処理", () => {
     const out = await processReportEvent(db(), toReportEvent(msg({ ts: ts(60), text: "床も" }))!, deps);
     expect(out).toMatchObject({ kind: "report", replied: true });
     expect(out.kind === "report" && out.mergedInto).toBeTruthy();
-    expect(posted[0]!.text).toBe("受け付けました。さっきの報告にまとめておきますね。");
+    expect(posted[0]!.text).toBe("床・デスク、受け付けました。さっきの報告にまとめておきますね。");
   });
 
   it("同じ送信が二度届いても一度しか処理しない", async () => {

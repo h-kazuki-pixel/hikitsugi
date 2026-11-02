@@ -226,7 +226,11 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
 
   let replied = false;
   // 畳み込んだ送信にも受付は返す(11/3 実機: 5分以内の2通目に返事がなく、無視されたように見えた)
-  if (!result.reply) result.reply = mergedInto ? "受け付けました。さっきの報告にまとめておきますね。" : "おつかれさま。受け付けました。";
+  if (!result.reply) {
+    const names = result.areas.map((id) => areas.find((a) => a.id === id)?.name ?? id).join("・");
+    const what = names ? `${names}、` : "";
+    result.reply = mergedInto ? `${what}受け付けました。さっきの報告にまとめておきますね。` : `おつかれさま。${what}受け付けました。`;
+  }
   const reply = composeReply(result, (id) => areas.find((a) => a.id === id)?.name ?? id);
   if (reply) {
     const res: { ok: boolean; ts?: string } = await deps.slack
@@ -405,6 +409,12 @@ async function withdrawUnreported(db: D1Database, storeId: string, staffId: stri
   return results.length;
 }
 
+// 判断経路に出す時刻は JST の「11/3 04:36」(撮影で映るので、UTC の生の表記にしない)
+function jstLabel(iso: string): string {
+  const d = new Date(Date.parse(iso) + 9 * 60 * 60 * 1000);
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+}
+
 type JudgmentRule = {
   id: string;
   rule_no: number;
@@ -464,7 +474,7 @@ async function recordRuleMatches(
     const id = newId();
     const who = sender?.display_name ?? "名簿にない人";
     const path = [
-      { step: "投稿を受け取る", detail: `${who}さんの投稿(送信 ${ev.sentAt})` },
+      { step: "投稿を受け取る", detail: `${who}さんの投稿(送信 ${jstLabel(ev.sentAt)})` },
       { step: "写真と本文を読む", detail: `写真${imageCount}枚と本文を、有効な判断の基準${rules.length}件と照合` },
       { step: `ルール${rule.rule_no}に該当`, detail: `「${rule.natural_text}」` },
       { step: "ルールの由来", detail: ruleOrigin(rule) },
@@ -511,7 +521,7 @@ async function recordTrouble(
   const id = newId();
   const what = result.trouble ?? result.memo ?? "依頼・トラブルの投稿";
   const path = [
-    { step: "投稿を受け取る", detail: `送信 ${ev.sentAt}` },
+    { step: "投稿を受け取る", detail: `${sender?.display_name ?? "名簿にない人"}さんの投稿(送信 ${jstLabel(ev.sentAt)})` },
     { step: "分類と構造化", detail: `分類: ${result.categories.join(" / ")}` },
     { step: "トラブルとして検出", detail: what },
     { step: "既定値", detail: "トラブルはすぐオーナーに知らせる" },
