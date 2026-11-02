@@ -1,0 +1,67 @@
+# hikitsugi — Cloudflare Workers の設定
+#
+# 環境は demo(架空データ・公開)と production(実店舗)の2つ。
+# Worker・D1・Queues は環境ごとに別(撮影に実データが映る事故を、資源の段階で防ぐ。設計書 7章)。
+# D1・Queues はオーナーが Cloudflare ダッシュボードで作成済み。このリポジトリからは作らない。
+# 秘密情報(ANTHROPIC_API_KEY ほか)はここに書かない。GitHub Actions が wrangler secret put で環境ごとに入れる。
+#
+# バインディングは環境ごとに継承されないので、demo / production の両方に書く。
+# 必ず --env demo / --env production を付けて使う(npm run dev は demo)。
+
+name = "hikitsugi"
+main = "src/index.tsx"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ---------------------------------------------------------------- demo
+[env.demo]
+name = "hikitsugi-demo"
+workers_dev = true
+
+[env.demo.vars]
+ENVIRONMENT = "demo"
+
+[[env.demo.d1_databases]]
+binding = "DB"
+database_name = "hikitsugi-demo"
+database_id = "988307e9007c412da2e10129282d69ea"
+migrations_dir = "migrations"
+
+[[env.demo.queues.producers]]
+binding = "JOBS"
+queue = "hikitsugi-jobs-demo"
+
+[[env.demo.queues.consumers]]
+queue = "hikitsugi-jobs-demo"
+max_batch_size = 10
+max_batch_timeout = 5
+
+# 定時は UTC で書く。22:00 UTC = 朝 7:00 JST、12:30 UTC = 夜 21:30 JST(仕様 5章)。Cron はキューに積むだけ
+[env.demo.triggers]
+crons = ["0 22 * * *", "30 12 * * *"]
+
+# ---------------------------------------------------------- production
+[env.production]
+name = "hikitsugi-production"
+workers_dev = true
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "hikitsugi-production"
+database_id = "557f2aa9f6b9491383c86d37f07e75f9"
+migrations_dir = "migrations"
+
+[[env.production.queues.producers]]
+binding = "JOBS"
+queue = "hikitsugi-jobs-production"
+
+[[env.production.queues.consumers]]
+queue = "hikitsugi-jobs-production"
+max_batch_size = 10
+max_batch_timeout = 5
+
+[env.production.triggers]
+crons = ["0 22 * * *", "30 12 * * *"]
