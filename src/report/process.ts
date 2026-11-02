@@ -46,7 +46,8 @@ export type ProcessOutcome =
       question?: QuestionOutcome;
     }
   | QuestionOutcome
-  | { kind: "clarified"; reportId: string; version: number; areas: string[]; replied: boolean };
+  | { kind: "clarified"; reportId: string; version: number; areas: string[]; replied: boolean }
+  | { kind: "recheck_followup"; reportId: string; replied: boolean };
 
 const MAX_IMAGES = 4;
 
@@ -301,7 +302,22 @@ async function processClarifyAnswer(
     .prepare("SELECT 1 FROM report_versions WHERE report_id = ? AND basis = 'staff_reply'")
     .bind(report.id)
     .first();
-  if (answered) return { kind: "ignored", reason: "already_answered" };
+  if (answered) {
+    // 聞き返しは1回だけ。ただ、要確認が残っている間に本人があとから送ってきたもの(写真・「完了」)は
+    // 新しい申告として受け、必ず一言返す(11/3 実機: 2通目の写真に何も返らなかった)
+    const boardDate = jstDate(new Date(report.sent_at)).iso;
+    const rootId = report.merged_into_report_id ?? report.id;
+    const { results: areas } = await db
+      .prepare("SELECT id, name FROM areas WHERE store_id = ? AND active = 1 ORDER BY sort_order")
+      .bind(store.id)
+      .all<{ id: string; name: string }>();
+    // 文だけなら、片づけたと読める言葉のときだけ申告として受ける(「了解です」では完了にしない)
+    const saysDone = /拾|完了|片付|片づ|掃除|きれい|綺麗|済み|済ん|終わ|やりました|取りました|直しました/.test(ev.text);
+    const follow = await settleRecheck(db, deps, store, areas, boardDate, rootId, ev, saysDone);
+    if (!follow) return { kind: "ignored", reason: "already_answered" };
+    const res = await deps.slack.postMessage(ev.channelRef, follow.reply, ev.threadRef).catch(() => ({ ok: false }));
+    return { kind: "recheck_followup", reportId: report.id, replied: res.ok };
+  }
 
   const cur = await db
     .prepare("SELECT version, performer_staff_id, areas, supplies_out, trouble, memo, confidence FROM reports_current WHERE id = ?")
@@ -366,10 +382,31 @@ async function processClarifyAnswer(
   const boardDate = jstDate(new Date(report.sent_at)).iso;
   const rootId = report.merged_into_report_id ?? report.id;
   await resyncBoard(db, store.id, boardDate, rootId);
-  // 要確認の箇所の扱い(11/3 オーナーの判断: 申告は信じるが、根拠を区別して見せる)
-  //   返事に写真がある → もう一度見て、汚れが消えていれば完了(根拠: 写真)、まだ見えれば要確認のまま
-  //   文だけで「拾いました」 → 完了(根拠: 本人の申告)
-  let reply = result.reply;
+  // まだ見えるときだけ文を差し替える(完了なら Claude のお礼をそのまま返す)
+  const settled = await settleRecheck(db, deps, store, areas, boardDate, rootId, ev, result.leftover_cleared);
+  const reply = settled?.still ? settled.reply : result.reply;
+
+  const res = await deps.slack.postMessage(ev.channelRef, reply, ev.threadRef).catch(() => ({ ok: false }));
+  return { kind: "clarified", reportId: report.id, version, areas: result.areas, replied: res.ok };
+}
+
+
+// 要確認の箇所を片づける(11/3 オーナーの判断: 申告は信じるが、根拠を区別して見せる)
+//   写真がある → もう一度見て、汚れが消えていれば完了(根拠: 写真)、まだ見えれば要確認のまま
+//   文だけで片づけたと分かる → 完了(根拠: 本人の申告)
+// 返す文: 完了なら「完了で記録しました」、まだ見えれば「要確認のまま残しておきます」。要確認がなければ null
+async function settleRecheck(
+  db: D1Database,
+  deps: ProcessDeps,
+  store: Store,
+  areas: { id: string; name: string }[],
+  boardDate: string,
+  rootId: string,
+  ev: ReportEvent,
+  cleared: boolean,
+): Promise<{ reply: string; still: boolean } | null> {
+  let reply: { reply: string; still: boolean } | null = null;
+  const doneReply = "ありがとう!完了で記録しました。";
   const { results: pending } = await db
     .prepare("SELECT area_id FROM board_items WHERE store_id = ? AND date = ? AND status = 'needs_recheck' AND done_report_id = ?")
     .bind(store.id, boardDate, rootId)
@@ -404,6 +441,7 @@ async function processClarifyAnswer(
       console.log(JSON.stringify({ claude: "recheck_photo", ...again.usage, images: images.length }));
       const still = again.result.leftover.filter((l) => pending.some((p) => p.area_id === l.area));
       await setDone(pending.map((p) => p.area_id).filter((a) => !still.some((l) => l.area === a)), "photo");
+      if (!still.length) reply = { reply: doneReply, still: false };
       for (const l of still) {
         await db
           .prepare("UPDATE board_items SET recheck_note = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE store_id = ? AND date = ? AND area_id = ? AND status = 'needs_recheck'")
@@ -413,17 +451,17 @@ async function processClarifyAnswer(
       if (still.length) {
         const seen = still.map((l) => `${areas.find((a) => a.id === l.area)?.name ?? l.area}の${l.what}`).join("、");
         // 聞き返しは1回だけ。重ねて頼まず、残したことだけ伝える
-        reply = `ありがとう。写真ではまだ${seen}が見えるので、要確認のまま残しておきます。`;
+        reply = { reply: `ありがとう。写真ではまだ${seen}が見えるので、要確認のまま残しておきます。`, still: true };
       }
-    } else if (result.leftover_cleared) {
+    } else if (cleared) {
       await setDone(pending.map((p) => p.area_id), "staff_word");
+      reply = { reply: doneReply, still: false };
     }
-  } else if (pending.length && result.leftover_cleared) {
+  } else if (pending.length && cleared) {
     await setDone(pending.map((p) => p.area_id), "staff_word");
+    reply = { reply: doneReply, still: false };
   }
-
-  const res = await deps.slack.postMessage(ev.channelRef, reply, ev.threadRef).catch(() => ({ ok: false }));
-  return { kind: "clarified", reportId: report.id, version, areas: result.areas, replied: res.ok };
+  return reply;
 }
 
 // 設計書 5-3「遅れて届いた入室や報告で前提が変わったら検出を取り下げ、取り下げたことも判断経路に残す。

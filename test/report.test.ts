@@ -351,6 +351,34 @@ describe("汚れが残っている写真は完了にしない(11/3 実機: 紙�
     const last = dirty.posted.at(-1)!.text;
     expect(last).toBe("ありがとう。写真ではまだトイレの便器の右側に紙くずが見えるので、要確認のまま残しておきます。");
     expect(last).not.toMatch(/[?？]/);
+
+    // そのあと本人がきれいな写真を送ってきた(11/3 実機: 何も返らなかった)→ もう一度見て完了、必ず一言返す
+    const after = fakes({ ...DIRTY, leftover: [] });
+    const out = await processReportEvent(db(), toReportEvent(msg({ ...photo, thread_ts: thu(0), ts: thu(300), text: "完了" }))!, after.deps);
+    expect(out).toMatchObject({ kind: "recheck_followup", replied: true });
+    expect(after.posted.at(-1)!.text).toBe("ありがとう!完了で記録しました。");
+    expect(await db().prepare("SELECT status, done_basis FROM board_items WHERE id = 'tenjin:2026-11-12:tenjin_toilet'").first()).toEqual({ status: "done", done_basis: "photo" });
+
+    // 要確認が残っていないスレッドの雑談は、今までどおり何もしない
+    const chat = fakes(DIRTY);
+    expect(await processReportEvent(db(), toReportEvent(msg({ thread_ts: thu(0), ts: thu(400), text: "了解です" }))!, chat.deps)).toEqual({ kind: "ignored", reason: "already_answered" });
+    expect(chat.posted).toEqual([]);
+  });
+
+  it("要確認が残っている間の文だけの追いかけは、片づけたと読めるときだけ申告として受ける", async () => {
+    const fri = (o: number) => (Date.UTC(2026, 10, 13, 9, 0) / 1000 + o).toFixed(6);
+    const photo: Partial<SlackMessageEvent> = { subtype: "file_share", files: [{ id: "F61", mimetype: "image/jpeg", thumb_1024: "https://files.example/x" }] };
+    await processReportEvent(db(), toReportEvent(msg({ ...photo, ts: fri(0), text: "" }))!, fakes(DIRTY).deps);
+    // 1回目の答えは「あとでやります」(片づけていない)
+    await processReportEvent(db(), toReportEvent(msg({ thread_ts: fri(0), ts: fri(60), text: "あとでやります" }))!, fakes(DIRTY, { areas: ["tenjin_toilet", "tenjin_trash"], leftover_cleared: false, reply: "了解です、ありがとう。" }).deps);
+    expect(await db().prepare("SELECT status FROM board_items WHERE id = 'tenjin:2026-11-13:tenjin_toilet'").first()).toEqual({ status: "needs_recheck" });
+    // 「了解」では完了にしない
+    const a = fakes(DIRTY);
+    expect(await processReportEvent(db(), toReportEvent(msg({ thread_ts: fri(0), ts: fri(120), text: "了解" }))!, a.deps)).toEqual({ kind: "ignored", reason: "already_answered" });
+    // 「拾いました」で完了(本人の申告)
+    const b = fakes(DIRTY);
+    expect(await processReportEvent(db(), toReportEvent(msg({ thread_ts: fri(0), ts: fri(600), text: "拾いました" }))!, b.deps)).toMatchObject({ kind: "recheck_followup", replied: true });
+    expect(await db().prepare("SELECT status, done_basis FROM board_items WHERE id = 'tenjin:2026-11-13:tenjin_toilet'").first()).toEqual({ status: "done", done_basis: "staff_word" });
   });
 });
 
