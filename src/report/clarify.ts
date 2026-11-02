@@ -101,7 +101,7 @@ export function claudeResolver(apiKey: string): Resolver {
     const ids = input.areas.map((a) => a.id);
     const res = await client.messages.create({
       model: STRUCTURE_MODEL,
-      max_tokens: 512,
+      max_tokens: 1024,
       system: system(input),
       // claude-sonnet-5-5 は tool_choice で特定のツールを強制できない(structure.ts と同じ)
       tools: [tool(ids)],
@@ -112,7 +112,7 @@ export function claudeResolver(apiKey: string): Resolver {
     if (!block) throw new Error("聞き返しの確定版が返りませんでした");
     return {
       result: normalizeAnswer(block.input as Partial<ResolveResult>, ids),
-      usage: { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens },
+      usage: { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens, truncated: res.stop_reason === "max_tokens" },
     };
   };
 }

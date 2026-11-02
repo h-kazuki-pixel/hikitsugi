@@ -137,7 +137,7 @@ export async function runHandoffAgent(
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const res = await call({
       model: AGENT_MODEL,
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: system(input.storeName),
       tools: TOOLS,
       tool_choice: { type: "auto" },

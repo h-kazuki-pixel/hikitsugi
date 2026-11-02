@@ -16,7 +16,7 @@ export function claudeRuleDrafter(apiKey: string): RuleDrafter {
   return async (input) => {
     const res = await client.messages.create({
       model: STRUCTURE_MODEL,
-      max_tokens: 256,
+      max_tokens: 512,
       system: [
         "無人自習室のオーナーが、スタッフの質問に答えました。この答えを、以後の判断の基準にするルールの文面に下書きしてください。",
         "文章で答えずに、必ず record_rule を1回だけ呼んでください。",

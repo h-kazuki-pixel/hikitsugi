@@ -56,7 +56,7 @@ export function claudeRuleChecker(apiKey: string): RuleChecker {
     content.push({ type: "text", text: `本文: ${input.text || "(本文なし)"}\n写真: ${input.images.length}枚` });
     const res = await client.messages.create({
       model: STRUCTURE_MODEL,
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: [
         `あなたは無人自習室「${input.storeName}」のオーナーが決めたルールに、スタッフの清掃報告(写真と本文)が反していないかを確かめる係です。`,
         "ルールを1件ずつ見て、反している様子が写真や本文に確かに写っているかを record_rule_check で記録してください。文章で答えず、必ず record_rule_check を1回だけ呼んでください。",
@@ -77,7 +77,7 @@ export function claudeRuleChecker(apiKey: string): RuleChecker {
     const raw = ((block?.input as { checks?: unknown[] } | undefined)?.checks ?? []) as Partial<RuleCheckResult[number]>[];
     return {
       result: normalizeRuleCheck(raw, ruleNos),
-      usage: { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens },
+      usage: { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens, truncated: res.stop_reason === "max_tokens" },
     };
   };
 }

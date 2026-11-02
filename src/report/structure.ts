@@ -35,7 +35,7 @@ export type StructureResult = {
   leftover: { area: string; what: string }[]; // 清掃後の写真に残っている汚れ・ゴミ(箇所ごと)
 };
 
-export type StructureUsage = { model: string; input_tokens: number; output_tokens: number };
+export type StructureUsage = { model: string; input_tokens: number; output_tokens: number; truncated?: boolean };
 
 export type Structurer = (input: StructureInput) => Promise<{ result: StructureResult; usage: StructureUsage }>;
 
@@ -53,6 +53,11 @@ function tool(areaIds: string[], ruleNos: number[]): Anthropic.Tool {
           items: { type: "string", enum: CATEGORIES },
           description:
             "cleaning_report=清掃をした報告(写真だけでも清掃後の写真なら報告) / question=スタッフからの質問 / request_trouble=備品の依頼・トラブル・違反の目撃 / other=雑談など。両方に当たれば両方入れる",
+        },
+        reply: {
+          type: "string",
+          description:
+            "清掃報告のときだけ、スレッドに返す受付の文。ねぎらい + 受け付けた箇所を1〜2文。質問は入れない(聞き返しは clarify_question に書くと、システムが後ろにつなげて送る)。責めない。清掃報告でなければ空文字",
         },
         areas: {
           type: "array",
@@ -98,13 +103,9 @@ function tool(areaIds: string[], ruleNos: number[]): Anthropic.Tool {
             required: ["rule_no", "evidence"],
           },
         },
-        reply: {
-          type: "string",
-          description:
-            "清掃報告のときだけ、スレッドに返す受付の文。ねぎらい + 受け付けた箇所を1〜2文。質問は入れない(聞き返しは clarify_question に書くと、システムが後ろにつなげて送る)。責めない。清掃報告でなければ空文字",
-        },
       },
-      required: ["categories", "areas", "supplies_out", "trouble", "memo", "confidence", "clarify_question", "leftover", "rule_matches", "reply"],
+      // 返事は先に書かせる(11/3 実機: 出力が上限で切れ、最後の欄の返事が空になっていた)
+      required: ["categories", "reply", "areas", "supplies_out", "trouble", "memo", "confidence", "clarify_question", "leftover", "rule_matches"],
     },
   };
 }
@@ -161,7 +162,7 @@ export function claudeStructurer(apiKey: string): Structurer {
     );
     const res = await client.messages.create({
       model: STRUCTURE_MODEL,
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: system(input),
       // claude-sonnet-5-5 は tool_choice で特定のツールを強制できない(400 になる)。自動に任せ、システム文で必ず呼ぶよう指示する
       tools: [t],
@@ -176,7 +177,7 @@ export function claudeStructurer(apiKey: string): Structurer {
         input.areas.map((a) => a.id),
         input.rules.map((r) => r.no),
       ),
-      usage: { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens },
+      usage: { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens, truncated: res.stop_reason === "max_tokens" },
     };
   };
 }

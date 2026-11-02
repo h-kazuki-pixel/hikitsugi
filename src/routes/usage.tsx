@@ -17,14 +17,14 @@ const KIND_LABEL: Record<string, string> = {
   rule_structure: "自然文ルールの構造化",
 };
 
-type Row = { kind: string; model: string; n: number; avg_in: number; avg_out: number; sum_in: number; sum_out: number; avg_turns: number; avg_images: number };
+type Row = { kind: string; model: string; n: number; avg_in: number; avg_out: number; sum_in: number; sum_out: number; avg_turns: number; avg_images: number; n_truncated: number };
 
 usage.get("/usage", async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT kind, model, count(*) AS n,
             round(avg(input_tokens)) AS avg_in, round(avg(output_tokens)) AS avg_out,
             sum(input_tokens) AS sum_in, sum(output_tokens) AS sum_out,
-            round(avg(turns), 1) AS avg_turns, round(avg(images), 1) AS avg_images
+            round(avg(turns), 1) AS avg_turns, round(avg(images), 1) AS avg_images, sum(truncated) AS n_truncated
        FROM claude_usage GROUP BY kind, model ORDER BY sum_in DESC`,
   ).all<Row>();
   const total = results.reduce((t, r) => ({ n: t.n + r.n, i: t.i + r.sum_in, o: t.o + r.sum_out }), { n: 0, i: 0, o: 0 });
@@ -51,6 +51,7 @@ usage.get("/usage", async (c) => {
                   {r.n}回 / 1回あたり 入力 {r.avg_in.toLocaleString()}・出力 {r.avg_out.toLocaleString()} トークン
                   {r.avg_turns > 1 ? ` / 往復 ${r.avg_turns}` : ""}
                   {r.avg_images > 0 ? ` / 写真 ${r.avg_images}枚` : ""}
+                  {r.n_truncated > 0 ? ` / 上限で切れた ${r.n_truncated}回` : ""}
                 </p>
               </li>
             ))}
