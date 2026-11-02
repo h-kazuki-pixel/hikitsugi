@@ -52,7 +52,7 @@ ENVIRONMENT = "production"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "hikitsugi-production"
-database_id = "557f2aa9-f6b9-4913-83c8-6d37f07e75f9"
+database_id = "69d6c3cb-60cd-4038-a69f-fa56c708fcc9"
 migrations_dir = "migrations"
 
 [[env.production.queues.producers]]
