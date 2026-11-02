@@ -1,0 +1,57 @@
+import type { Child } from "hono/jsx";
+
+// スマホ優先。幅は狭い画面を基準にし、広い画面では中央に寄せるだけ
+const css = `
+:root {
+  --bg: #f6f5f2; --card: #ffffff; --text: #1d1d1b; --muted: #6b6a66; --line: #e3e1db;
+  --accent: #2f6f5e; --done: #2f6f5e; --pending: #a15c00; --carried: #8a3b3b; --none: #6b6a66;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --card: #1f1f1d; --text: #ecebe7; --muted: #a3a29c; --line: #34332f;
+    --accent: #7cc4ad; --done: #7cc4ad; --pending: #f0b35a; --carried: #e48d8d; --none: #a3a29c;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-size: 16px; line-height: 1.6; -webkit-text-size-adjust: 100%;
+}
+main { max-width: 640px; margin: 0 auto; padding: 16px 16px 48px; }
+header { margin-bottom: 16px; }
+h1 { font-size: 1.35rem; line-height: 1.35; margin: 4px 0; }
+h2 { font-size: 1.05rem; margin: 0 0 8px; }
+.meta { color: var(--muted); font-size: 0.9rem; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.badge { display: inline-block; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.badge.demo { border-color: var(--accent); color: var(--accent); }
+section.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 12px; }
+.empty { color: var(--muted); margin: 0; }
+ul.board { list-style: none; margin: 0; padding: 0; }
+ul.board li { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; border-top: 1px solid var(--line); }
+ul.board li:first-child { border-top: 0; }
+.status { font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+.status.done { color: var(--done); } .status.pending { color: var(--pending); }
+.status.carried_over { color: var(--carried); } .status.no_assignee { color: var(--none); }
+a { color: var(--accent); }
+ul.stores { list-style: none; padding: 0; margin: 0; }
+ul.stores li a { display: block; padding: 12px 0; min-height: 44px; border-top: 1px solid var(--line); text-decoration: none; }
+ul.stores li:first-child a { border-top: 0; }
+`;
+
+export function Layout(props: { title: string; children: Child }) {
+  return (
+    <html lang="ja">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="robots" content="noindex" />
+        <title>{props.title}</title>
+        <style dangerouslySetInnerHTML={{ __html: css }} />
+      </head>
+      <body>
+        <main>{props.children}</main>
+      </body>
+    </html>
+  );
+}

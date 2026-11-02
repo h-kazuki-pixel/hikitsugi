@@ -1,9 +1,12 @@
 import { Hono } from "hono";
 import type { Env, Job } from "./env";
+import { stores } from "./routes/stores";
+import { NotFoundPage } from "./views/StorePage";
 
 export const app = new Hono<{ Bindings: Env }>();
 
-app.get("/", (c) => c.text("hikitsugi"));
+app.route("/", stores);
+app.notFound((c) => c.html(<NotFoundPage />, 404));
 
 // Cron は判断をしない。キューに積むだけ(設計書 7章)
 function slotOf(cron: string): "morning" | "night" {
