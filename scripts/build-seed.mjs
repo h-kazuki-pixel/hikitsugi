@@ -17,7 +17,6 @@ const CLEANING_TYPE = { 毎日の店: "daily", 週次巡回の店: "weekly" };
 const ROLE = { スタッフ: "staff", 副担当: "sub", オーナー: "owner" };
 const KIND = { 場所: "place", 手順: "procedure", 判断: "judgment" };
 const LOCK = { RemoteLOCK: "remotelock", その他: "other", なし: "none" };
-const COUNT_SCOPE = { 全店合計: "all_stores", 店舗ごと: "per_store" };
 const ACTION = {
   知らせる: "notify",
   下書きを作る: "draft",
@@ -56,14 +55,18 @@ function insert(table, row) {
   return `INSERT OR IGNORE INTO ${table} (${cols.join(", ")}) VALUES (${cols.map((c) => sql(row[c])).join(", ")});`;
 }
 
-// ISO 日付(JST)→ その日の 12:00 JST を UTC で(出典の日時として使う)
-const jstNoon = (d) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error(`日付の形が違います: ${d}`);
-  return `${d}T03:00:00Z`;
-};
+// JST の日時(YYYY-MM-DD HH:MM)→ UTC の ISO 8601
+const JST_DATETIME = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/;
+export function jstToUtc(s) {
+  const m = String(s).match(JST_DATETIME);
+  if (!m) throw new Error(`日時の形が違います(YYYY-MM-DD HH:MM、JST): ${s}`);
+  const [, y, mo, d, h, mi] = m.map(Number);
+  return new Date(Date.UTC(y, mo - 1, d, h - 9, mi)).toISOString().replace(".000Z", "Z");
+}
 
-export function validate({ people, stores, owner_rules }) {
+export function validate({ people, stores, owner_rules, 運営の設定 }) {
   const errors = [];
+  if (!運営の設定) errors.push("運営の設定(塊3 のうち運営全体で決めるもの)がありません");
   const ids = new Set();
   const dup = (id) => (ids.has(id) ? errors.push(`id が重複しています: ${id}`) : ids.add(id));
   const personIds = new Set(people.map((p) => p.id));
@@ -88,7 +91,9 @@ export function validate({ people, stores, owner_rules }) {
     for (const r of ["オーナー", "副担当"]) if (roles[r] && !personIds.has(roles[r])) errors.push(`${s.id}: ${r} ${roles[r]} が名簿にいません`);
     for (const q of s["7_口調とよく聞かれる質問"]?.よく聞かれる質問 ?? []) {
       dup(q.id);
-      if (!q.回答 || !q.答えた人 || !q.答えた日) errors.push(`${q.id}: 出典(回答・答えた人・答えた日)のない知識は入れない`);
+      if (!q.回答 || !q.答えた人 || !q.答えた) errors.push(`${q.id}: 出典(回答・答えた人・答えた日時)のない知識は入れない`);
+      for (const t of [q.聞いた, q.答えた]) if (t && !JST_DATETIME.test(t)) errors.push(`${q.id}: 日時は YYYY-MM-DD HH:MM(JST)で書く: ${t}`);
+      if (q.聞いた && q.答えた && JST_DATETIME.test(q.聞いた) && JST_DATETIME.test(q.答えた) && q.聞いた > q.答えた) errors.push(`${q.id}: 答えた日時が聞いた日時より前です`);
       if (q.答えた人 && !personIds.has(q.答えた人)) errors.push(`${q.id}: 答えた人 ${q.答えた人} が名簿にいません`);
       if (q.聞いた人 && !personIds.has(q.聞いた人)) errors.push(`${q.id}: 聞いた人 ${q.聞いた人} が名簿にいません`);
     }
@@ -104,11 +109,25 @@ export function validate({ people, stores, owner_rules }) {
 
 export function buildSeedSql(seed) {
   validate(seed);
-  const { people, stores, owner_rules } = seed;
+  const { people, stores, owner_rules, 運営の設定: org } = seed;
   const out = ["-- seed/demo.mjs から生成(npm run seed:build)。手で編集しない。すべて架空データ", ""];
 
+  out.push(
+    insert("org_settings", {
+      id: 1,
+      week_start: org.週の起算日,
+      required_days_per_week: org.週の実施日数,
+      areas_per_visit: org.来店時の清掃箇所数,
+      attendance_style: org.出勤の決め方,
+      exemption_policy: org.免除の制度,
+      merge_window_minutes: org.二重送信の畳み込み分,
+      unreported_after_minutes: org.未報告とみるまでの分,
+    }),
+    "",
+  );
+
   for (const s of stores) {
-    const c1 = s["1_店舗"], c3 = s["3_スタッフ"], c4 = s["4_報告の手段"], c5 = s["5_入室記録"], c7 = s["7_口調とよく聞かれる質問"];
+    const c1 = s["1_店舗"], c4 = s["4_報告の手段"], c5 = s["5_入室記録"], c7 = s["7_口調とよく聞かれる質問"];
     out.push(
       insert("stores", {
         id: s.id,
@@ -119,14 +138,6 @@ export function buildSeedSql(seed) {
         cleaning_type: code(CLEANING_TYPE, c1.清掃の型, "清掃の型"),
         closed_days: { weekdays: c1.休業日.曜日, dates: c1.休業日.日付 },
         closed_day_policy: c1.休業日.決め方,
-        week_start: c3.週の起算日,
-        required_days_per_week: c3.週の実施日数,
-        count_scope: code(COUNT_SCOPE, c3.数え方, "数え方"),
-        areas_per_visit: c3.来店時の清掃箇所数,
-        attendance_style: c3.出勤の決め方,
-        exemption_policy: c3.免除の制度,
-        merge_window_minutes: c3.二重送信の畳み込み分,
-        unreported_after_minutes: c3.未報告とみるまでの分,
         slack_channel_id: c4.slackチャンネル,
         photo_required: c4.写真を必須にする,
         lock_type: code(LOCK, c5.鍵の種類, "鍵の種類"),
@@ -159,19 +170,24 @@ export function buildSeedSql(seed) {
 
   for (const s of stores) {
     for (const q of s["7_口調とよく聞かれる質問"].よく聞かれる質問) {
+      // 質問を「オーナー確認中」で入れ、回答を積む(回答が積まれるとトリガーが回答済みにする)
       out.push(
         insert("knowledge", {
           id: q.id,
           store_id: s.id,
           question: q.質問,
-          answer: q.回答,
           kind: code(KIND, q.種別, "種別"),
           asked_by_staff_id: q.聞いた人 ?? null,
-          asked_at: jstNoon(q.聞いた日 ?? q.答えた日),
+          asked_at: jstToUtc(q.聞いた ?? q.答えた),
+          question_ref: "seed:立ち上げ面談",
+        }),
+        insert("knowledge_answers", {
+          id: `${q.id}_a1`,
+          knowledge_id: q.id,
+          answer: q.回答,
           answered_by_staff_id: q.答えた人,
-          answered_at: jstNoon(q.答えた日),
-          status: "answered",
-          source_ref: "seed:立ち上げ面談",
+          answered_at: jstToUtc(q.答えた),
+          answer_ref: "seed:立ち上げ面談",
         }),
       );
     }
