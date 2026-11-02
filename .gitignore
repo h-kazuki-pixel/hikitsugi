@@ -1,0 +1,17 @@
+# 実データ・秘密情報(コミットしない)
+private/
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+
+# 依存とビルド
+node_modules/
+dist/
+.wrangler/
+
+# Claude Code の個人設定
+.claude/settings.local.json
+
+# OS
+.DS_Store
