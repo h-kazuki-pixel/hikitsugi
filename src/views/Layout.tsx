@@ -54,6 +54,8 @@ form.add-rule { display: grid; gap: 6px; margin-top: 12px; border-top: 1px solid
 form.add-rule label { font-size: 0.9rem; color: var(--muted); }
 textarea { font: inherit; width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
 code { font-size: 0.8rem; word-break: break-all; }
+.draft-body { white-space: pre-wrap; margin: 4px 0; padding: 8px; border-radius: 8px; background: var(--bg); }
+select { font: inherit; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 0 8px; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 `;
 

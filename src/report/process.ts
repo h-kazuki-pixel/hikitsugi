@@ -15,6 +15,7 @@ import { ensureBoard, markDone, resyncBoard } from "./board";
 import type { Resolver } from "./clarify";
 import type { ModelCall } from "../knowledge/agent";
 import type { RuleDrafter } from "../rules/candidate";
+import { md, ruleOrigin } from "../rules/origin";
 import { handleOwnerAnswer, handleQuestion, lookupPerson, type QuestionOutcome } from "../knowledge/handle";
 import { composeReply, type Structurer, type StructureResult } from "./structure";
 
@@ -183,6 +184,9 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
       ),
   ]);
 
+  // 遅れて届いた報告: この報告より前の入室で「報告なし」と検出していたら取り下げる(承認前の下書きも消える)
+  if (sender) await withdrawUnreported(db, store.id, sender.id, ev.sentAt);
+
   const date = jstDate(new Date(ev.sentAt)).iso;
   await ensureBoard(db, store.id, date);
   const boardUpdated = await markDone(db, store.id, date, result.areas, mergedInto ?? reportId);
@@ -325,6 +329,34 @@ async function processClarifyAnswer(
   return { kind: "clarified", reportId: report.id, version, areas: result.areas, replied: res.ok };
 }
 
+// 設計書 5-3「遅れて届いた入室や報告で前提が変わったら検出を取り下げ、取り下げたことも判断経路に残す。
+// 承認前の下書きは取り下げと同時に消える」。判定は送信時刻: 入室(解錠時刻)のあとに送られた報告なら、その入室の報告
+async function withdrawUnreported(db: D1Database, storeId: string, staffId: string, sentAt: string): Promise<number> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, reasoning_path FROM findings
+        WHERE store_id = ? AND target_staff_id = ? AND kind = 'unreported' AND status = 'active'
+          AND json_extract(evidence, '$.unlocked_at') <= ?`,
+    )
+    .bind(storeId, staffId, sentAt)
+    .all<{ id: string; reasoning_path: string }>();
+  const hhmm = (iso: string) => {
+    const d = new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000);
+    return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+  };
+  for (const f of results) {
+    const reason = `報告が届いた(送信 ${hhmm(sentAt)}。入室のあとの送信なので、その入室の報告とみる)`;
+    const path = [...(JSON.parse(f.reasoning_path) as unknown[]), { step: "取り下げ", detail: `${reason}。承認前の下書きも取り下げた` }];
+    await db.batch([
+      db
+        .prepare("UPDATE findings SET status = 'withdrawn', withdrawn_at = ?, withdrawn_reason = ?, reasoning_path = ? WHERE id = ?")
+        .bind(new Date().toISOString(), reason, JSON.stringify(path), f.id),
+      db.prepare("UPDATE drafts SET status = 'withdrawn', decided_at = ? WHERE finding_id = ? AND status = 'pending'").bind(new Date().toISOString(), f.id),
+    ]);
+  }
+  return results.length;
+}
+
 type JudgmentRule = {
   id: string;
   rule_no: number;
@@ -356,19 +388,6 @@ async function activeJudgmentRules(db: D1Database, storeId: string): Promise<Jud
     .bind(storeId)
     .all<JudgmentRule>();
   return results;
-}
-
-function md(iso: string | null): string {
-  if (!iso) return "?";
-  const d = new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000);
-  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-}
-
-export function ruleOrigin(r: Pick<JudgmentRule, "origin" | "question" | "asked_at" | "asked_by" | "answer" | "answered_at" | "answered_by">): string {
-  if (r.origin === "knowledge") {
-    return `引き継ぎ帳: ${md(r.asked_at)} ${r.asked_by ?? "スタッフ"}さんの質問「${r.question ?? ""}」→ ${md(r.answered_at)} ${r.answered_by ?? "オーナー"}の回答「${r.answer ?? ""}」`;
-  }
-  return r.origin === "interview" ? "立ち上げ面談" : "オーナーが追加";
 }
 
 // ルール(判断の基準)に当たる様子を検出事項にし、オーナーに知らせる(運営宛てなので承認不要)。

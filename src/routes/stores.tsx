@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../env";
 import { jstDate } from "../lib/time";
 import { claudeRuleStructurer, type RuleStructurer } from "../rules/structure";
+import { DRAFTS_QUERY, type DraftRow } from "../views/DraftsSection";
 import { FINDINGS_QUERY, type FindingRow } from "../views/FindingsSection";
 import { RULES_QUERY, type RuleRow } from "../views/RulesSection";
 import { NotFoundPage, StoreListPage, StorePage, type BoardRow, type StoreRow } from "../views/StorePage";
@@ -41,9 +42,14 @@ stores.get("/stores/:id", async (c) => {
 
   const { results: rules } = await c.env.DB.prepare(RULES_QUERY).bind(id).all<RuleRow>();
   const { results: findings } = await c.env.DB.prepare(FINDINGS_QUERY).bind(id).all<FindingRow>();
+  const { results: drafts } = await c.env.DB.prepare(DRAFTS_QUERY).bind(id).all<DraftRow>();
+  const isDemo = c.env.ENVIRONMENT === "demo";
+  const demoStaff = isDemo
+    ? (await c.env.DB.prepare("SELECT id, display_name FROM staff WHERE role = 'staff' AND status = 'active' ORDER BY display_name").all<{ id: string; display_name: string }>()).results
+    : [];
 
   return c.html(
-    <StorePage store={store} board={board} today={today} isDemo={c.env.ENVIRONMENT === "demo"} rules={rules} findings={findings} />,
+    <StorePage store={store} board={board} today={today} isDemo={isDemo} rules={rules} findings={findings} drafts={drafts} demoStaff={demoStaff} />,
   );
 });
 

@@ -4,7 +4,7 @@
 import type { ReportEvent } from "./channels/report-event";
 
 export type Job =
-  | { type: "cron"; slot: "morning" | "night"; scheduledAt: string }
+  | { type: "cron"; slot: "morning" | "night"; scheduledAt: string; storeId?: string } // storeId: デモの手動実行で1店舗だけ回す
   | { type: "report_event"; event: ReportEvent };
 
 export type Env = {
