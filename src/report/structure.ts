@@ -84,6 +84,7 @@ function system(input: StructureInput): string {
   return [
     `あなたは無人自習室「${input.storeName}」の店舗チャンネルに届いた投稿を受け付ける係です。`,
     "投稿を分類し、清掃報告なら何をしたかを構造化して record_post に記録してください。",
+    "どんな投稿でも、文章で答えずに必ず record_post を1回だけ呼んでください(報告でなければ categories にそう入れ、reply は空にします)。",
     "",
     "清掃箇所(この中からだけ選ぶ):",
     areas || "(なし)",
@@ -120,8 +121,9 @@ export function claudeStructurer(apiKey: string): Structurer {
       model: STRUCTURE_MODEL,
       max_tokens: 1024,
       system: system(input),
+      // claude-sonnet-5-5 は tool_choice で特定のツールを強制できない(400 になる)。自動に任せ、システム文で必ず呼ぶよう指示する
       tools: [t],
-      tool_choice: { type: "tool", name: t.name },
+      tool_choice: { type: "auto" },
       messages: [{ role: "user", content: userContent(input) }],
     });
     const block = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");

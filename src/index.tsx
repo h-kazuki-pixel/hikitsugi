@@ -53,8 +53,15 @@ export default {
         }
         msg.ack();
       } catch (err) {
-        console.error(`ジョブの処理に失敗しました(${job.type}): ${err instanceof Error ? err.message : String(err)}`);
-        msg.retry({ delaySeconds: 10 });
+        const reason = err instanceof Error ? err.message : String(err);
+        // 同じ失敗を繰り返さない: 3回で諦めて記録に残す(Claude の 400 のような、やり直しても直らない失敗がある)
+        if (msg.attempts >= 3) {
+          console.error(`ジョブを諦めました(${job.type}、${msg.attempts}回目): ${reason}`);
+          msg.ack();
+        } else {
+          console.error(`ジョブの処理に失敗しました(${job.type}、${msg.attempts}回目): ${reason}`);
+          msg.retry({ delaySeconds: 10 });
+        }
       }
     }
   },
