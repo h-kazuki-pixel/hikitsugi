@@ -93,6 +93,23 @@ test("フック: git add && git commit では未ステージの新規ファイ�
   assert.equal(runHook(dir, 'git add . && git commit -m "e"').status, 2);
 });
 
+test("フック: コミットメッセージ(-m / ヒアドキュメント / -F)も検査する", () => {
+  const { dir, g } = tempRepo();
+  writeFileSync(join(dir, "m.txt"), "clean\n");
+  g("add", "m.txt");
+  // 差分はきれいでも、メッセージに実データがあれば止める
+  assert.equal(runHook(dir, `git commit -m "連絡先 ${j("hanako", "@", "gmail.com")}"`).status, 2);
+  const heredoc = `git commit -m "$(cat <<'EOF'\n件名\n\nU${j("0", "12AB34CD")} に確認\nEOF\n)"`;
+  const r = runHook(dir, heredoc);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /\(コミットメッセージ\):4\s+Slack ユーザーID/);
+  writeFileSync(join(dir, "..msg"), j("token ", "xo", "xp-", "2222222222-abcdefghij\n"));
+  assert.equal(runHook(dir, `git commit -F ${join(dir, "..msg")}`).status, 2);
+  // 通常のメッセージ(Co-Authored-By の noreply を含む)は通す
+  const ok = 'git commit -m "機能を追加\n\nCo-Authored-By: Claude <noreply@anthropic.com>"';
+  assert.equal(runHook(dir, ok).status, 0);
+});
+
 test("フック: private/denylist.txt の語で止め、denylist 自体は検査しない", () => {
   const { dir, g } = tempRepo();
   writeFileSync(join(dir, ".gitignore"), "private/\n");

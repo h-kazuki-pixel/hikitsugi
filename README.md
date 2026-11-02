@@ -10,6 +10,7 @@
 
 - 設定: [.claude/settings.json](.claude/settings.json) の `PreToolUse` フック(Bash)
 - 検査: [scripts/check-commit.mjs](scripts/check-commit.mjs)。コミットされる差分の追加行だけを見る。`git commit -a` や `git add … && git commit` のときは未ステージの変更と未追跡ファイルも見る。見つかった値は伏せて表示する
+- コミットメッセージ: `-m`(ヒアドキュメントを含む)と `-F` / `--file` の中身も同じ規則で検査する
 - 追加の語: `private/denylist.txt`(.gitignore 済み、コミットしない)に1行1語で書くと、その語も検査する(大文字小文字は区別しない、`#` で始まる行はコメント)。第三者の実名や会員情報を入れる
 - 架空データの書き方: メールは `@example.com`、Slack ユーザーID は `U_DEMO_01` のように `_` を入れる
 - 手で走らせる: `node scripts/check-commit.mjs`(ステージ済みの差分を検査)

@@ -2,7 +2,8 @@
 // コミット前の実データ検査。
 //
 // 公開リポジトリに実データ(APIキー・トークン・メールアドレス・電話番号・Slack のユーザーID、
-// private/denylist.txt に書いた第三者の実名など)を入れないため、コミットされる差分の「追加行」を検査する。
+// private/denylist.txt に書いた第三者の実名など)を入れないため、コミットされる差分の「追加行」と
+// コミットメッセージ(フックとして動くとき。-m / -F の中身)を検査する。
 //
 // 使い方:
 //   node scripts/check-commit.mjs           ステージ済みの差分を検査する
@@ -158,7 +159,7 @@ export function scanLines(lines, denylist = []) {
 
 function report(findings) {
   const lines = [
-    "コミットを止めました: 公開リポジトリに入れてはいけない文字列が差分に含まれています。",
+    "コミットを止めました: 公開リポジトリに入れてはいけない文字列が差分かコミットメッセージに含まれています。",
     "",
     ...findings.slice(0, 50).map((f) => `  ${f.file}:${f.line}  ${f.kind}  (${mask(f.value)})`),
   ];
@@ -192,6 +193,29 @@ export function analyzeCommand(cmd) {
   return { commit, wide };
 }
 
+// コミットメッセージとして検査する行。
+// -m / --message の中身(ヒアドキュメントを含む)を確実に拾うため、`git commit` 以降のコマンド文字列をまるごと見る。
+// -F / --file で渡されたファイルは中身を読む(`-F -` は標準入力なので読めない)。
+export function messageLines(cmd, cwd = process.cwd()) {
+  const m = cmd.match(/\bgit\b(?:\s+-C\s+\S+|\s+-c\s+\S+)*\s+commit\b/);
+  if (!m) return [];
+  const rest = cmd.slice(m.index);
+  const out = rest.split(/\r?\n/).map((text, i) => ({ file: "(コミットメッセージ)", line: i + 1, text }));
+  for (const f of rest.matchAll(/(?:^|\s)(?:-F|--file)(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/g)) {
+    const path = f[1] ?? f[2] ?? f[3];
+    if (path === "-") continue;
+    try {
+      const p = path.startsWith("/") ? path : join(cwd, path);
+      readFileSync(p, "utf8")
+        .split(/\r?\n/)
+        .forEach((text, i) => out.push({ file: `(コミットメッセージ: ${path})`, line: i + 1, text }));
+    } catch {
+      /* まだ無いファイルは読めない */
+    }
+  }
+  return out;
+}
+
 function readStdin() {
   try {
     return readFileSync(0, "utf8");
@@ -203,6 +227,7 @@ function readStdin() {
 function main() {
   const hookMode = process.argv.includes("--hook");
   let wide = process.argv.includes("--wide");
+  let msgLines = [];
 
   if (hookMode) {
     let input;
@@ -223,6 +248,7 @@ function main() {
         /* そのまま */
       }
     }
+    msgLines = messageLines(cmd, process.cwd());
   }
 
   let root;
@@ -232,7 +258,7 @@ function main() {
     process.exit(0); // git リポジトリの外なら何もしない
   }
 
-  const findings = scanLines(collectLines(root, wide), loadDenylist(root));
+  const findings = scanLines([...collectLines(root, wide), ...msgLines], loadDenylist(root));
   if (findings.length === 0) process.exit(0);
   process.stderr.write(report(findings) + "\n");
   process.exit(2);
