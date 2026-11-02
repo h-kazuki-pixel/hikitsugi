@@ -2,7 +2,7 @@
 // コードの守り(本当に未報告か・下書きのルールか・二重検出)と、承認して送る / 遅れて届いた報告で取り下げる
 import type Anthropic from "@anthropic-ai/sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runNightCheck } from "../src/agent/night";
+import { reasoningNote, runNightCheck } from "../src/agent/night";
 import { toReportEvent } from "../src/channels/slack";
 import { app } from "../src/index";
 import type { ModelCall } from "../src/knowledge/agent";
@@ -165,6 +165,14 @@ describe("夜の突き合わせ", () => {
     expect(f!.withdrawn_reason).toContain("送信 19:10");
     expect((JSON.parse(f!.reasoning_path) as { step: string }[]).at(-1)!.step).toBe("取り下げ");
     expect(await db().prepare("SELECT status FROM drafts WHERE finding_id = ?").bind(findingId).first()).toEqual({ status: "withdrawn" });
+  });
+});
+
+describe("判断経路に同じことを二度書かない(11/3 実機)", () => {
+  it("事実の言い直しは落とし、それ以外の考えは残す", () => {
+    expect(reasoningNote("はるとさんは01:23に解錠してから150分たっているのに、それ以降にはるとさんからの報告が1件もないため。", "はると")).toBe("");
+    expect(reasoningNote("ほかの店への報告もない。", "はると")).toBe("ほかの店への報告もない。");
+    expect(reasoningNote("", "はると")).toBe("");
   });
 });
 
