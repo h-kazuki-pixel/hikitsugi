@@ -14,6 +14,7 @@ import type { SlackClient } from "../slack/api";
 import { ensureBoard, markDone, resyncBoard } from "./board";
 import type { Resolver } from "./clarify";
 import type { ModelCall } from "../knowledge/agent";
+import type { RuleDrafter } from "../rules/candidate";
 import { handleOwnerAnswer, handleQuestion, lookupPerson, type QuestionOutcome } from "../knowledge/handle";
 import { composeReply, type Structurer, type StructureResult } from "./structure";
 
@@ -21,6 +22,7 @@ export type ProcessDeps = {
   structure: Structurer;
   resolve: Resolver;
   agent: ModelCall; // 引き継ぎ帳のエージェント(claude-opus-5-5)
+  draftRule: RuleDrafter; // 判断の答えからルール候補の文面を下書きする
   slack: SlackClient;
   newId?: () => string;
 };
@@ -53,7 +55,7 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   if (ev.isDirect) {
     const person = await lookupPerson(db, ev.senderRef);
     if (!person) return { kind: "ignored", reason: "unknown_sender" };
-    const kdeps = { slack: deps.slack, agent: deps.agent, newId };
+    const kdeps = { slack: deps.slack, agent: deps.agent, draftRule: deps.draftRule, newId };
     if (ev.isReplyInThread) {
       return person.role === "staff" ? { kind: "ignored", reason: "thread_reply" } : handleOwnerAnswer(db, ev, kdeps, person);
     }
@@ -113,7 +115,7 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   // 質問は引き継ぎ帳へ(報告と質問の両方に当たる投稿は両方)
   const askQuestion = async () =>
     result.categories.includes("question")
-      ? handleQuestion(db, ev, { slack: deps.slack, agent: deps.agent, newId }, { store: await storeRow(db, store.id), sender: await lookupPerson(db, ev.senderRef) })
+      ? handleQuestion(db, ev, { slack: deps.slack, agent: deps.agent, draftRule: deps.draftRule, newId }, { store: await storeRow(db, store.id), sender: await lookupPerson(db, ev.senderRef) })
       : undefined;
 
   if (!isReport) {

@@ -37,6 +37,17 @@ a { color: var(--accent); }
 ul.stores { list-style: none; padding: 0; margin: 0; }
 ul.stores li a { display: block; padding: 12px 0; min-height: 44px; border-top: 1px solid var(--line); text-decoration: none; }
 ul.stores li:first-child a { border-top: 0; }
+ul.rules { list-style: none; margin: 0; padding: 0; }
+ul.rules li { border-top: 1px solid var(--line); padding: 10px 0; }
+ul.rules li:first-child { border-top: 0; padding-top: 0; }
+.rule-q { margin: 0; font-size: 0.85rem; color: var(--muted); }
+.rule-text { margin: 2px 0; font-weight: 600; }
+dl.rule-src { margin: 6px 0; font-size: 0.9rem; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
+dl.rule-src dt { color: var(--muted); } dl.rule-src dd { margin: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.actions form { margin: 0; }
+button { font: inherit; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 `;
 
 export function Layout(props: { title: string; children: Child }) {

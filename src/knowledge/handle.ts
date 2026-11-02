@@ -12,16 +12,17 @@ import { jstDate } from "../lib/time";
 import type { SlackClient } from "../slack/api";
 import { isClosedDay } from "../views/StorePage";
 import { runHandoffAgent, type Decision, type ModelCall } from "./agent";
+import { createRuleCandidate, type RuleDrafter } from "../rules/candidate";
 import { sourceLabel } from "./search";
 
-export type KnowledgeDeps = { slack: SlackClient; agent: ModelCall; newId: () => string };
+export type KnowledgeDeps = { slack: SlackClient; agent: ModelCall; draftRule: RuleDrafter; newId: () => string };
 
 type Store = { id: string; name: string; closed_days: string };
 type Person = { id: string; display_name: string; role: "staff" | "sub" | "owner"; home_store_id: string | null };
 
 export type QuestionOutcome =
   | { kind: "question"; decision: Decision["type"]; knowledgeId: string | null; replied: boolean; ownerAsked: boolean }
-  | { kind: "owner_answer"; knowledgeId: string; answerId: string; repliedToStaff: boolean }
+  | { kind: "owner_answer"; knowledgeId: string; answerId: string; repliedToStaff: boolean; ruleCandidate: { ruleId: string; ruleNo: number } | null }
   | { kind: "ignored"; reason: string };
 
 export const TEXT = {
@@ -128,12 +129,24 @@ export async function handleOwnerAnswer(
 ): Promise<QuestionOutcome> {
   const k = await db
     .prepare(
-      `SELECT k.id, k.question_ref, k.question_channel_ref, s.display_name AS asked_by
-         FROM knowledge k LEFT JOIN staff s ON s.id = k.asked_by_staff_id
+      `SELECT k.id, k.store_id, st.name AS store_name, k.question, k.kind, k.question_ref, k.question_channel_ref,
+              s.display_name AS asked_by
+         FROM knowledge k
+         LEFT JOIN staff s ON s.id = k.asked_by_staff_id
+         LEFT JOIN stores st ON st.id = k.store_id
         WHERE k.owner_ask_channel_ref = ? AND k.owner_ask_ref = ?`,
     )
     .bind(ev.channelRef, ev.threadRef)
-    .first<{ id: string; question_ref: string | null; question_channel_ref: string | null; asked_by: string | null }>();
+    .first<{
+      id: string;
+      store_id: string | null;
+      store_name: string | null;
+      question: string;
+      kind: string | null;
+      question_ref: string | null;
+      question_channel_ref: string | null;
+      asked_by: string | null;
+    }>();
   if (!k) return { kind: "ignored", reason: "owner_thread_without_question" };
   if (!ev.text) return { kind: "ignored", reason: "empty_answer" };
 
@@ -162,9 +175,23 @@ export async function handleOwnerAnswer(
       .then((r) => r.ok)
       .catch(() => false);
   }
+  // 判断の答えはルール候補にする(有効にするのはオーナーの承認だけ)
+  const candidate = await createRuleCandidate(db, deps, k, { id: answerId, text: ev.text });
+
   const who = k.asked_by ? `${k.asked_by}さん` : "質問した人";
-  await deps.slack
-    .postMessage(ev.channelRef, repliedToStaff ? `${who}に返し、引き継ぎ帳に残しました。` : `引き継ぎ帳に残しました(${who}への返事は送れませんでした)。`, ev.threadRef)
-    .catch(() => undefined);
-  return { kind: "owner_answer", knowledgeId: k.id, answerId, repliedToStaff };
+  const lines = [repliedToStaff ? `${who}に返し、引き継ぎ帳に残しました。` : `引き継ぎ帳に残しました(${who}への返事は送れませんでした)。`];
+  if (candidate) {
+    lines.push(
+      `判断の答えなので、ルール候補にしました: ルール${candidate.ruleNo}「${candidate.naturalText}」`,
+      "店舗ページで承認すると、次から報告・写真の検出と引き継ぎ帳の答えの基準になります。",
+    );
+  }
+  await deps.slack.postMessage(ev.channelRef, lines.join("\n"), ev.threadRef).catch(() => undefined);
+  return {
+    kind: "owner_answer",
+    knowledgeId: k.id,
+    answerId,
+    repliedToStaff,
+    ruleCandidate: candidate ? { ruleId: candidate.ruleId, ruleNo: candidate.ruleNo } : null,
+  };
 }

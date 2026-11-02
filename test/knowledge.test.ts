@@ -11,6 +11,7 @@ import { normalizeAnswer } from "../src/report/clarify";
 import { processReportEvent, type ProcessDeps } from "../src/report/process";
 import { normalize, type StructureResult } from "../src/report/structure";
 import type { SlackClient } from "../src/slack/api";
+import { app } from "../src/index";
 import { demoEnv } from "./helpers";
 
 let proxy: Awaited<ReturnType<typeof demoEnv>>;
@@ -63,13 +64,18 @@ function fakes(turns: Block[][], structured: Partial<StructureResult> = { catego
     },
   };
   const model = scripted(turns);
+  const drafted: { question: string; answer: string }[] = [];
   const deps: ProcessDeps = {
     slack,
     agent: model.call,
+    draftRule: async (input) => {
+      drafted.push(input);
+      return { natural_text: "加湿器は机上のみ可" };
+    },
     structure: async (input) => ({ result: normalize(structured, input.areas.map((a) => a.id)), usage: { model: "t", input_tokens: 1, output_tokens: 1 } }),
     resolve: async (input) => ({ result: normalizeAnswer({}, input.areas.map((a) => a.id)), usage: { model: "t", input_tokens: 1, output_tokens: 1 } }),
   };
-  return { deps, posted, requests: model.requests };
+  return { deps, posted, requests: model.requests, drafted };
 }
 
 describe("引き継ぎ帳の検索", () => {
@@ -156,18 +162,22 @@ describe("知らない質問 → 確認中 → オーナーに一度だけ → �
   it("オーナーが DM のスレッドで答える → スタッフのスレッドに出典つきで返し、回答を積む", async () => {
     // 11/8(日)21:00 JST
     const sunday = (Date.UTC(2026, 10, 8, 12, 0) / 1000).toFixed(6);
-    const { deps, posted, requests } = fakes([]);
+    const { deps, posted, requests, drafted } = fakes([]);
     const ev = toReportEvent({ type: "message", user: "U_DEMO_OWNER", channel: ownerAsk.channel, channel_type: "im", ts: sunday, thread_ts: ownerAsk.ts, text: "加湿器は置いていい。ただし床置きはだめ。" })!;
     const out = await processReportEvent(db(), ev, deps);
-    expect(out).toMatchObject({ kind: "owner_answer", knowledgeId, repliedToStaff: true });
-    expect(requests).toEqual([]); // 答えを積むのに Claude は呼ばない
+    expect(out).toMatchObject({ kind: "owner_answer", knowledgeId, repliedToStaff: true, ruleCandidate: { ruleNo: 6 } });
+    expect(requests).toEqual([]); // 答えを積むのに引き継ぎ帳のエージェントは呼ばない
+    expect(drafted).toEqual([{ storeName: "サンプル自習室 天神店", question: "加湿器って置いていい?", answer: "加湿器は置いていい。ただし床置きはだめ。" }]);
 
     expect(posted[0]).toMatchObject({
       channel: "C_DEMO_TENJIN",
       thread: ts(600),
       text: "オーナーから答えが来ました。\n加湿器は置いていい。ただし床置きはだめ。(11/8 デモオーナーの回答)",
     });
-    expect(posted[1]).toMatchObject({ channel: "D_DEMO_OWNER", thread: ownerAsk.ts, text: "みおさんに返し、引き継ぎ帳に残しました。" });
+    expect(posted[1]).toMatchObject({ channel: "D_DEMO_OWNER", thread: ownerAsk.ts });
+    expect(posted[1]!.text).toBe(
+      "みおさんに返し、引き継ぎ帳に残しました。\n判断の答えなので、ルール候補にしました: ルール6「加湿器は机上のみ可」\n店舗ページで承認すると、次から報告・写真の検出と引き継ぎ帳の答えの基準になります。",
+    );
 
     const k = await db().prepare("SELECT status FROM knowledge WHERE id = ?").bind(knowledgeId).first();
     expect(k).toEqual({ status: "answered" });
@@ -196,5 +206,54 @@ describe("知らない質問 → 確認中 → オーナーに一度だけ → �
       reason: "operator_post",
     });
     expect(await processReportEvent(db(), toReportEvent(dm({ user: "U_DEMO_NOBODY", ts: ts(5200) }))!, deps)).toEqual({ kind: "ignored", reason: "unknown_sender" });
+  });
+});
+
+describe("判断の答えはルール候補になり、承認でだけ有効になる(約束2)", () => {
+  const page = async () => (await app.request("/stores/tenjin", {}, proxy.env)).text();
+  const post = (path: string) =>
+    app.request(path, { method: "POST", body: new URLSearchParams({ store: "tenjin" }), headers: { "content-type": "application/x-www-form-urlencoded" } }, proxy.env);
+
+  it("候補は店舗ページに元の質問と答えを添えて出る。まだ有効ではない", async () => {
+    const r = await db().prepare("SELECT id, status, origin, action, activated_at FROM rules WHERE rule_no = 6").first<{ id: string }>();
+    expect(r).toMatchObject({ status: "candidate", origin: "knowledge", action: "judgment_basis", activated_at: null });
+    const html = await page();
+    expect(html).toContain("この答えをルールにしますか");
+    expect(html).toContain("ルール6「加湿器は机上のみ可」");
+    expect(html).toContain("加湿器って置いていい?(11/7 みおさん)");
+    expect(html).toContain("加湿器は置いていい。ただし床置きはだめ。(11/8 デモオーナー)");
+  });
+
+  it("承認するとルール一覧に由来つきで並ぶ(面談のルールと同じ一覧)", async () => {
+    const r = (await db().prepare("SELECT id FROM rules WHERE rule_no = 6").first<{ id: string }>())!;
+    const res = await post(`/rules/${r.id}/approve`);
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/stores/tenjin#rules-title");
+    expect(await db().prepare("SELECT status FROM rules WHERE id = ?").bind(r.id).first()).toEqual({ status: "active" });
+
+    const html = await page();
+    expect(html).not.toContain("この答えをルールにしますか");
+    expect(html).toContain("由来: 引き継ぎ帳(11/7 みおさんの質問、11/8 デモオーナーの回答)");
+    expect(html).toContain("由来: 立ち上げ面談");
+
+    // 一度決めたものは押し直しても変わらない
+    await post(`/rules/${r.id}/reject`);
+    expect(await db().prepare("SELECT status FROM rules WHERE id = ?").bind(r.id).first()).toEqual({ status: "active" });
+  });
+
+  it("場所・手順の答えはルール候補にしない", async () => {
+    const { deps } = fakes([
+      [use("search_knowledge", { query: "延長コード" })],
+      [use("ask_owner", { kind: "place", why: "場所の質問" })],
+    ]);
+    const q = await processReportEvent(db(), toReportEvent(dm({ ts: ts(7000), text: "延長コードってどこにある?" }))!, deps);
+    if (q.kind !== "question") throw new Error();
+    const k = await db().prepare("SELECT owner_ask_ref, owner_ask_channel_ref FROM knowledge WHERE id = ?").bind(q.knowledgeId).first<{ owner_ask_ref: string; owner_ask_channel_ref: string }>();
+    const out = await processReportEvent(
+      db(),
+      toReportEvent({ type: "message", user: "U_DEMO_OWNER", channel: k!.owner_ask_channel_ref, channel_type: "im", ts: ts(7200), thread_ts: k!.owner_ask_ref, text: "ロッカーの下の段" })!,
+      fakes([]).deps,
+    );
+    expect(out).toMatchObject({ kind: "owner_answer", ruleCandidate: null });
   });
 });

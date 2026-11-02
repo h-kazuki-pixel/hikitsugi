@@ -51,6 +51,7 @@ function fakes(result: Partial<StructureResult>, answer: Partial<ResolveResult> 
         content: [{ type: "tool_use", id: "t", name: "ask_owner", input: { kind: "judgment", why: "test" } }],
         usage: { input_tokens: 1, output_tokens: 1 },
       }) as never,
+    draftRule: async () => ({ natural_text: "テストのルール" }),
     resolve: async (input) => {
       resolveInputs.push(input);
       return { result: normalizeAnswer(answer, input.areas.map((a) => a.id)), usage: { model: "test-model", input_tokens: 1, output_tokens: 1 } };

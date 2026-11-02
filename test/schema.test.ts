@@ -20,7 +20,7 @@ describe("seed", () => {
                 (SELECT count(*) FROM staff WHERE role = 'staff') AS staff, (SELECT count(*) FROM staff) AS people,
                 (SELECT count(*) FROM knowledge WHERE status = 'answered' AND question_ref LIKE 'seed:%') AS knowledge,
                 (SELECT count(*) FROM knowledge_answers WHERE answer_ref LIKE 'seed:%') AS answers,
-                (SELECT count(*) FROM rules WHERE status = 'active') AS rules`,
+                (SELECT count(*) FROM rules WHERE status = 'active' AND origin = 'interview') AS rules`,
       )
       .first();
     expect(row).toEqual({ stores: 2, areas: 6, staff: 4, people: 6, knowledge: 10, answers: 10, rules: 5 });
@@ -153,7 +153,7 @@ describe("引き継ぎ帳: 回答は追記のみ、出典は必須", () => {
       run("INSERT INTO rules (id, rule_no, natural_text, action, origin, status) VALUES ('rule_x', 99, '加湿器は机上のみ可', 'judgment_basis', 'knowledge', 'candidate')"),
     ).rejects.toThrow();
     await run(
-      "INSERT INTO rules (id, rule_no, natural_text, action, origin, origin_knowledge_id, origin_answer_id, status) VALUES ('rule_6', 6, '加湿器は机上のみ可', 'judgment_basis', 'knowledge', 'k_humid', 'ka_h1', 'candidate')",
+      "INSERT INTO rules (id, rule_no, natural_text, action, origin, origin_knowledge_id, origin_answer_id, status) VALUES ('rule_6', 106, '加湿器は机上のみ可', 'judgment_basis', 'knowledge', 'k_humid', 'ka_h1', 'candidate')",
     );
   });
 });
