@@ -29,8 +29,7 @@ jobs:
       group: deploy-${{ inputs.environment }}
       cancel-in-progress: false
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID は下の「資格情報を確かめる」で整えてから GITHUB_ENV に入れる
       WRANGLER_SEND_METRICS: "false"
       TARGET_ENV: ${{ inputs.environment }}
     steps:
@@ -41,12 +40,29 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Cloudflare の資格情報を確かめる
+      # Secrets を貼り付けるときに末尾の改行や空白が入りやすい(初回の deploy-demo はこれで落ちた)。
+      # 空白と改行を取り除き、アカウントID の形を確かめてから、後のステップに渡す
+      - name: Cloudflare の資格情報を確かめる(前後の空白・改行は取り除く)
+        env:
+          RAW_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RAW_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+          token=$(printf '%s' "$RAW_TOKEN" | tr -d '[:space:]')
+          account=$(printf '%s' "$RAW_ACCOUNT" | tr -d '[:space:]')
+          if [ -z "$token" ] || [ -z "$account" ]; then
             echo "::error::GitHub Secrets に CLOUDFLARE_API_TOKEN と CLOUDFLARE_ACCOUNT_ID を登録してください"
             exit 1
           fi
+          if ! printf '%s' "$account" | grep -Eq '^[0-9a-f]{32}$'; then
+            echo "::error::CLOUDFLARE_ACCOUNT_ID の形が違います(英小文字と数字の32文字のはず)。Cloudflare ダッシュボードの Workers & Pages の右側にあるアカウントID をそのまま登録してください"
+            exit 1
+          fi
+          [ "$token" = "$RAW_TOKEN" ] || echo "::warning::CLOUDFLARE_API_TOKEN に空白か改行が入っていたので取り除きました。Secrets を登録し直すとこの警告は消えます"
+          [ "$account" = "$RAW_ACCOUNT" ] || echo "::warning::CLOUDFLARE_ACCOUNT_ID に空白か改行が入っていたので取り除きました。Secrets を登録し直すとこの警告は消えます"
+          echo "::add-mask::$token"
+          echo "::add-mask::$account"
+          echo "CLOUDFLARE_API_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "CLOUDFLARE_ACCOUNT_ID=$account" >> "$GITHUB_ENV"
 
       - name: D1 マイグレーション
         run: npx wrangler d1 migrations apply DB --remote --env "$TARGET_ENV"
@@ -77,7 +93,11 @@ jobs:
           names="ANTHROPIC_API_KEY SLACK_SIGNING_SECRET SLACK_BOT_TOKEN ENTRY_WEBHOOK_SECRET"
           if [ "$TARGET_ENV" = "production" ]; then names="$names ACCESS_TEAM_DOMAIN ACCESS_AUD"; fi
           for name in $names; do
-            value="${!name}"
+            raw="${!name}"
+            # 前後の空白・改行を取り除く(末尾の改行が残ると Slack の署名検証などが合わなくなる)
+            value="${raw#"${raw%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            [ "$value" = "$raw" ] || echo "::warning::$name の前後に空白か改行が入っていたので取り除きました($TARGET_ENV)"
             if [ -z "$value" ]; then
               echo "::notice::$name は未登録なので飛ばしました($TARGET_ENV)"
               continue
@@ -97,16 +117,17 @@ jobs:
           if [ "$TARGET_ENV" = "demo" ]; then
             path="/stores/tenjin"; expect=200
           else
-            # production は Access の JWT なしでは 403 になることを確かめる(実店舗の画面が素通しになっていない)
-            path="/"; expect=403
+            # production は、ログインなしでは実店舗の画面が出ないことを確かめる。
+            # Access の設定前はコードが 403 を返し、設定後は Access がログイン画面へ転送する(302)
+            path="/"; expect="302|401|403"
           fi
           for i in 1 2 3 4 5 6; do
             code=$(curl -s -o body.html -w '%{http_code}' "$URL$path" || true)
-            [ "$code" = "$expect" ] && break
+            printf '%s' "$code" | grep -Eqx "$expect" && break
             sleep 5
           done
           echo "$URL$path → $code(期待値 $expect)"
-          [ "$code" = "$expect" ] || { echo "::error::動作確認に失敗しました"; exit 1; }
+          printf '%s' "$code" | grep -Eqx "$expect" || { echo "::error::動作確認に失敗しました"; exit 1; }
           if [ "$TARGET_ENV" = "demo" ]; then grep -q "サンプル自習室 天神店" body.html; fi
           {
             echo "### $TARGET_ENV にデプロイしました"
