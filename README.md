@@ -51,7 +51,7 @@ Built with Claude: Japan 2026 / テーマ1「あなたにしかない深さを�
 | 店舗ページ(店舗名と今日のボード。スマホ優先) | 実装済み(ボードはまだ空) |
 | demo / production の分離、production の Access 保護 | 実装済み |
 | GitHub Actions でのデプロイ | 実装済み |
-| Slack の受け口(報告の受信・分類・スレッド返事) | 実装中 |
+| Slack の受け口(報告の受信・分類・スレッド返事) | 実装中(署名の検証と url_verification まで) |
 | 報告の構造化・写真判定 | 実装中 |
 | 入室の受け口(`POST /events/entry`、CSV 取り込み、模擬ボタン) | 実装中 |
 | 現場エージェント(ツール使用ループ、判断経路、取り下げ) | 実装中 |
@@ -137,6 +137,27 @@ seed は `INSERT OR IGNORE` なので、何度流しても同じ結果になる(
 - 実店舗の名簿(Slack ID・解錠ID)は実データなのでリポジトリに置かない。入れ方は別途決める
 
 ダッシュボードの項目名は変わることがある。見つからなければ Cloudflare のドキュメント(Workers の workers.dev と Access、Access の Self-hosted applications)を参照する。
+
+## Slack アプリ(demo)
+
+デモ用ワークスペースに作る Slack アプリは [slack/manifest.demo.yaml](slack/manifest.demo.yaml)。スコープは設計書 7章で使うものだけ(店舗チャンネルの投稿・ボットへの DM・写真の受信、スレッド返事と承認後の DM)。実店舗用のアプリはワークスペースごと別に作る(撮影に実データが映る事故をアカウントの段階で防ぐ)。
+
+`/slack/events` は Slack の署名(Signing Secret)を確かめてから応答する。ただし Signing Secret はアプリを作ったあとでないと手に入らないので、`SLACK_SIGNING_SECRET` が未設定の間だけは `url_verification` の確認にだけ応答し、それ以外は断る。
+
+1. **入口がデプロイ済みか確かめる**: deploy-demo が通っていること(`/slack/events` を含む版が demo に出ていること)
+2. **アプリを作る**: api.slack.com/apps → Create New App → From an app manifest → デモ用ワークスペースを選ぶ → YAML の欄に `slack/manifest.demo.yaml` の中身を貼る → Next → Create。Request URL の確認はこの時点で通る
+3. **ワークスペースにインストールする**: OAuth & Permissions → Install to Workspace → 許可する
+4. **値を控える**
+   | Slack の画面 | 値 | GitHub の Environment `demo` の Secret 名 |
+   |---|---|---|
+   | Basic Information → App Credentials → Signing Secret(Show) | Signing Secret | `SLACK_SIGNING_SECRET` |
+   | OAuth & Permissions → OAuth Tokens → Bot User OAuth Token | `xoxb-` で始まるトークン | `SLACK_BOT_TOKEN` |
+5. **GitHub に登録する**: Settings → Environments → `demo` → Environment secrets → Add environment secret で、上の2つを登録する(リポジトリの Secrets ではなく Environment `demo` の Secrets。production のアプリの値は Environment `production` に入れる)
+6. **Worker に入れる**: Actions → deploy-demo → Run workflow。ワークフローが `wrangler secret put` で Worker に入れる(ログに「SLACK_SIGNING_SECRET を設定しました(demo)」と出る)
+7. **署名つきで確かめ直す**: Slack のアプリ設定 → Event Subscriptions で、Request URL の横の Retry(または URL を入れ直す)を押し、Verified になることを確かめる。ここからは署名が正しいリクエストだけを受け付ける
+8. **ボットをチャンネルに招く**: デモ用ワークスペースの店舗チャンネルで `/invite @hikitsugi-demo` する
+
+チャンネルと店舗の結びつけ(seed の `slackチャンネル`)と、受信 → 分類 → 構造化 → スレッド返事 → 畳み込みは次の段階で作る。
 
 ## ローカルで動かす
 
