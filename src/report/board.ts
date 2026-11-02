@@ -14,7 +14,9 @@ export async function ensureBoard(db: D1Database, storeId: string, date: string)
     .run();
 }
 
-// 清掃後の写真に汚れ・ゴミが残っている箇所は「完了」にせず「要確認」で止める(理由を残す)。すでに完了の箇所には触らない
+// 清掃後の写真に汚れ・ゴミが残っている箇所は「完了」にせず「要確認」で止める(理由を残す)。
+// その日すでに完了の箇所でも要確認に戻す(ボードは今の店の状態を映す。11/3 実機: 先の報告で完了 → 後の写真に紙くず → 完了のままだった)。
+// 報告の原本と版は上書きしないので、先の報告の記録は残る
 export async function markNeedsRecheck(db: D1Database, storeId: string, date: string, items: { area: string; what: string }[], reportId: string): Promise<number> {
   let n = 0;
   for (const it of items) {
@@ -22,7 +24,7 @@ export async function markNeedsRecheck(db: D1Database, storeId: string, date: st
       .prepare(
         `UPDATE board_items
             SET status = 'needs_recheck', done_report_id = ?, recheck_note = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-          WHERE store_id = ? AND date = ? AND area_id = ? AND status <> 'done'`,
+          WHERE store_id = ? AND date = ? AND area_id = ?`,
       )
       .bind(reportId, it.what, storeId, date, it.area)
       .run();
