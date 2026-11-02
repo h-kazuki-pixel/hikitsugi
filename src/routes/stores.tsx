@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "../env";
 import { jstDate } from "../lib/time";
+import { recordUsage } from "../lib/usage";
 import { claudeRuleStructurer, type RuleStructurer } from "../rules/structure";
 import { DRAFTS_QUERY, type DraftRow } from "../views/DraftsSection";
 import { FINDINGS_QUERY, type FindingRow } from "../views/FindingsSection";
@@ -64,6 +65,7 @@ stores.post("/stores/:id/rules", async (c) => {
   if (!text || !c.env.ANTHROPIC_API_KEY) return c.redirect(`/stores/${id}#rules-title`, 303);
 
   const r = await ruleDeps.structurer(c.env.ANTHROPIC_API_KEY)({ storeName: store.name, text });
+  if (r.usage) await recordUsage(c.env.DB, { kind: "rule_structure", ...r.usage, store_id: id });
   const allStores = r.target.scope === "all_stores";
   await c.env.DB.prepare(
     `INSERT INTO rules (id, rule_no, store_id, natural_text, condition, target, action, recipient, urgency, origin, status, reading, unclear)

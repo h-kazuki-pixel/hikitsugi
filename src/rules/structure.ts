@@ -30,6 +30,7 @@ export type StructuredRule = {
   urgency: (typeof URGENCIES)[number];
   reading: string; // 読み取った内容(オーナーが確かめる一文)
   unclear: string | null; // 読み取れなかった点(あれば画面に出す)
+  usage?: { model: string; input_tokens: number; output_tokens: number };
 };
 
 export type RuleStructurer = (input: { storeName: string; text: string }) => Promise<StructuredRule>;
@@ -76,10 +77,9 @@ export function claudeRuleStructurer(apiKey: string): RuleStructurer {
       tool_choice: { type: "auto" },
       messages: [{ role: "user", content: input.text }],
     });
-    console.log(JSON.stringify({ claude: "rule_structure", model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens }));
     const block = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
     if (!block) throw new Error("ルールの構造化の結果が返りませんでした");
-    return normalizeRule(block.input as Partial<StructuredRule>);
+    return { ...normalizeRule(block.input as Partial<StructuredRule>), usage: { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens } };
   };
 }
 
