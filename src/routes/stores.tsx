@@ -32,7 +32,7 @@ stores.get("/stores/:id", async (c) => {
 
   const today = jstDate();
   const { results: board } = await c.env.DB.prepare(
-    `SELECT a.name AS area_name, b.status, b.carried_from_date
+    `SELECT a.name AS area_name, b.status, b.carried_from_date, b.recheck_note
        FROM board_items b JOIN areas a ON a.id = b.area_id
       WHERE b.store_id = ? AND b.date = ?
       ORDER BY a.sort_order`,

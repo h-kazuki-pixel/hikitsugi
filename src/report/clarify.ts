@@ -25,6 +25,7 @@ export type ResolveResult = {
   memo: string | null;
   confidence: number;
   reply: string;
+  leftover_cleared: boolean; // 「拾ってもらえますか」への答えで、片づけたと分かった
 };
 
 export type Resolver = (input: ResolveInput) => Promise<{ result: ResolveResult; usage: StructureUsage }>;
@@ -45,12 +46,16 @@ function tool(areaIds: string[]): Anthropic.Tool {
         trouble: { type: ["string", "null"], description: "トラブルの内容。なければ null" },
         memo: { type: ["string", "null"], description: "メモ。なければ null" },
         confidence: { type: "number", minimum: 0, maximum: 1, description: "確定版の確信度。答えで確かめられたら上げる" },
+        leftover_cleared: {
+          type: "boolean",
+          description: "聞き返しが「残っている汚れ・ゴミを拾ってもらえますか」で、答えから片づけたと分かるなら true。片づけていない・分からないなら false",
+        },
         reply: {
           type: "string",
           description: "スレッドに返すお礼と、確定した内容を1文で。質問はしない。責めない",
         },
       },
-      required: ["areas", "supplies_out", "trouble", "memo", "confidence", "reply"],
+      required: ["areas", "supplies_out", "trouble", "memo", "confidence", "leftover_cleared", "reply"],
     },
   };
 }
@@ -123,6 +128,7 @@ export function normalizeAnswer(raw: Partial<ResolveResult>, areaIds: string[]):
     trouble: raw.trouble?.trim() || null,
     memo: raw.memo?.trim() || null,
     confidence: typeof raw.confidence === "number" ? Math.min(1, Math.max(0, raw.confidence)) : 0.8,
+    leftover_cleared: raw.leftover_cleared === true,
     reply: reply || "ありがとうございます。記録しました。",
   };
 }

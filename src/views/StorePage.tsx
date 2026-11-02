@@ -14,12 +14,13 @@ export type StoreRow = {
 
 export type BoardRow = {
   area_name: string;
-  status: "done" | "pending" | "carried_over" | "no_assignee";
+  status: "done" | "pending" | "carried_over" | "no_assignee" | "needs_recheck";
   carried_from_date?: string | null;
+  recheck_note?: string | null;
 };
 
 const CLEANING_TYPE_LABEL = { daily: "毎日の店", weekly: "週次巡回の店" } as const;
-const STATUS_LABEL = { done: "完了", pending: "未清掃", carried_over: "繰り越し", no_assignee: "対応者不在" } as const;
+const STATUS_LABEL = { done: "完了", pending: "未清掃", carried_over: "繰り越し", no_assignee: "対応者不在", needs_recheck: "要確認" } as const;
 
 export function isClosedDay(closedDaysJson: string, today: JstDate): boolean {
   try {
@@ -60,7 +61,10 @@ export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: Js
           <ul class="board">
             {board.map((b) => (
               <li>
-                <span>{b.area_name}</span>
+                <span>
+                  {b.area_name}
+                  {b.status === "needs_recheck" && b.recheck_note && <span class="note">{b.recheck_note}</span>}
+                </span>
                 <span class={`status ${b.status}`}>
                   {STATUS_LABEL[b.status]}
                   {b.status === "carried_over" && b.carried_from_date
