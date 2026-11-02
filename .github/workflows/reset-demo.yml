@@ -1,0 +1,40 @@
+# demo 環境の D1 を空にして、架空の seed から作り直す(撮影のやり直し用。手動でだけ動く)
+# Actions → reset-demo → Run workflow。確認の欄に「demo」と入れたときだけ動く
+# 報告・検出・ルール候補・消費の記録など、demo の D1 の中身はすべて消える(seed の店・人・ルール1〜5・知識10件に戻る)
+name: reset-demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: demo の D1 を空にします。よければ「demo」と入れてください
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 確認の欄
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "demo" ]; then
+            echo "::error::確認の欄に「demo」と入れてください(何もしませんでした)"
+            exit 1
+          fi
+
+  test:
+    needs: check
+    uses: ./.github/workflows/test.yml
+
+  reset-and-deploy:
+    needs: test
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: demo
+      reset_demo: true
+    secrets: inherit

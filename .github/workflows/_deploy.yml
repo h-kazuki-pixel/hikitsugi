@@ -14,6 +14,10 @@ on:
       environment:
         type: string
         required: true
+      reset_demo:
+        description: demo の D1 を空にしてから、マイグレーションと seed をやり直す(撮影のやり直し用。demo だけ)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -68,6 +72,18 @@ jobs:
       # できなければ、何を直せばよいかを日本語で出して止める(トークンやアカウント名はログに出さない)
       - name: Cloudflare の権限を確かめる
         run: scripts/ci/cf-diagnose.sh "$TARGET_ENV"
+
+      # 撮影のやり直し用。demo のときだけ、全テーブルを消してマイグレーションの記録から当て直す。
+      # production では、入力が渡っても止める(二重の守り)
+      - name: demo の D1 を空にする(reset-demo のときだけ)
+        if: inputs.reset_demo
+        run: |
+          if [ "$TARGET_ENV" != "demo" ]; then
+            echo "::error::reset は demo でしか動かしません"
+            exit 1
+          fi
+          npx wrangler d1 execute DB --remote --env demo --file scripts/ci/reset-demo.sql
+          echo "### demo の D1 を空にしました(このあとマイグレーションと seed を当て直します)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: D1 マイグレーション
         run: npx wrangler d1 migrations apply DB --remote --env "$TARGET_ENV"
