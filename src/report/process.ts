@@ -54,22 +54,36 @@ type Person = { id: string; display_name: string; role: "staff" | "sub" | "owner
 export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: ProcessDeps): Promise<ProcessOutcome> {
   const newId = deps.newId ?? (() => crypto.randomUUID());
 
-  // ボットへの DM: スタッフ・副担当の質問か、オーナーが問い合わせのスレッドで答えたもの(引き継ぎ帳)
+  // ボットへの DM: 写真つきなら本人の主な店舗への清掃報告(11/3 実機: DM に写真を送ったら空の質問としてオーナーに飛んだ)。
+  // 文だけならスタッフ・副担当の質問、オーナーが問い合わせのスレッドで答えたものは引き継ぎ帳
+  let store: Store | null = null;
   if (ev.isDirect) {
     const person = await lookupPerson(db, ev.senderRef);
     if (!person) return { kind: "ignored", reason: "unknown_sender" };
     const kdeps = { slack: deps.slack, agent: deps.agent, draftRule: deps.draftRule, newId };
     if (ev.isReplyInThread) {
-      return person.role === "staff" ? { kind: "ignored", reason: "thread_reply" } : handleOwnerAnswer(db, ev, kdeps, person);
+      if (person.role !== "staff") return handleOwnerAnswer(db, ev, kdeps, person);
+      // スタッフが DM の報告のスレッドで聞き返しに答えた
+      store = person.home_store_id ? await db.prepare("SELECT id, name, tone_sample FROM stores WHERE id = ?").bind(person.home_store_id).first<Store>() : null;
+      return store ? processClarifyAnswer(db, ev, deps, newId, store) : { kind: "ignored", reason: "thread_reply" };
     }
-    return person.role === "owner" ? { kind: "ignored", reason: "operator_post" } : handleQuestion(db, ev, kdeps, { store: null, sender: person });
+    if (person.role === "owner") return { kind: "ignored", reason: "operator_post" };
+    if (ev.images.length === 0) {
+      if (!ev.text) return { kind: "ignored", reason: "empty" };
+      return handleQuestion(db, ev, kdeps, { store: null, sender: person });
+    }
+    store = person.home_store_id ? await db.prepare("SELECT id, name, tone_sample FROM stores WHERE id = ?").bind(person.home_store_id).first<Store>() : null;
+    if (!store) {
+      await deps.slack.postMessage(ev.channelRef, "写真を受け取りましたが、どの店の報告か分かりませんでした。店舗のチャンネルに送ってください。", ev.threadRef).catch(() => undefined);
+      return { kind: "ignored", reason: "no_home_store" };
+    }
+  } else {
+    store = await db
+      .prepare("SELECT id, name, tone_sample FROM stores WHERE slack_channel_id = ?")
+      .bind(ev.channelRef)
+      .first<Store>();
+    if (!store) return { kind: "ignored", reason: "unknown_channel" };
   }
-
-  const store = await db
-    .prepare("SELECT id, name, tone_sample FROM stores WHERE slack_channel_id = ?")
-    .bind(ev.channelRef)
-    .first<Store>();
-  if (!store) return { kind: "ignored", reason: "unknown_channel" };
 
   // スレッドの中の返事は、聞き返しへの答えのときだけ扱う(報告として数えない)
   if (ev.isReplyInThread) return processClarifyAnswer(db, ev, deps, newId, store);

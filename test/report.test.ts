@@ -296,6 +296,18 @@ describe("汚れが残っている写真は完了にしない(11/3 実機: 紙�
     ]);
   });
 
+  it("その日すでに完了の箇所でも、後の写真に汚れが写っていたら要確認に戻す", async () => {
+    // 11/10: 先に完了 → 後の写真に紙くず
+    const tue = (o: number) => (Date.UTC(2026, 10, 10, 9, 0) / 1000 + o).toFixed(6);
+    await processReportEvent(db(), toReportEvent(msg({ ts: tue(0), text: "トイレ終わりました" }))!, fakes({ ...DIRTY, areas: ["tenjin_toilet"], leftover: [], clarify_question: null }).deps);
+    expect(await db().prepare("SELECT status FROM board_items WHERE id = 'tenjin:2026-11-10:tenjin_toilet'").first()).toEqual({ status: "done" });
+    await processReportEvent(db(), toReportEvent(msg({ ts: tue(1800), text: "" , subtype: "file_share", files: [{ id: "F41", mimetype: "image/jpeg", thumb_1024: "https://files.example/e" }] }))!, fakes(DIRTY).deps);
+    expect(await db().prepare("SELECT status, recheck_note FROM board_items WHERE id = 'tenjin:2026-11-10:tenjin_toilet'").first()).toEqual({
+      status: "needs_recheck",
+      recheck_note: "床に紙くずが数か所と黒っぽい汚れ",
+    });
+  });
+
   it("本人が「拾いました」と答えたら完了になる", async () => {
     const { deps } = fakes(DIRTY, { areas: ["tenjin_toilet", "tenjin_trash"], confidence: 0.95, leftover_cleared: true, reply: "ありがとう!トイレも完了で記録しました。" });
     const out = await processReportEvent(db(), toReportEvent(msg({ thread_ts: mon(0), ts: mon(300), text: "拾いました!" }))!, deps);

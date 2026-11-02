@@ -350,3 +350,19 @@ describe("有効なルールも出典つきの判断として返す(仕様 2章)
     expect(posted[0]!.text).toBe("ルール5「薬院店は週1回の巡回でいい。天神店は週4回」(立ち上げ面談で決めたこと)");
   });
 });
+
+describe("DM に写真が来たら、主な店舗の清掃報告として受け付ける(11/3 実機: 空の質問がオーナーに飛んだ)", () => {
+  it("写真つきの DM は報告。本文も写真もない DM は何もしない", async () => {
+    const { deps, posted, requests, structureInputs } = fakes([], { categories: ["cleaning_report"], areas: ["tenjin_toilet"], confidence: 0.9, clarify_question: null, leftover: [], reply: "おつかれさま。トイレ、受け付けました。" });
+    const ev = toReportEvent(dm({ subtype: "file_share", text: "", ts: ts(86_400 * 9), files: [{ id: "F50", mimetype: "image/jpeg", thumb_1024: "https://files.example/dm" }] }))!;
+    const out = await processReportEvent(db(), ev, deps);
+    expect(out).toMatchObject({ kind: "report", areas: ["tenjin_toilet"], replied: true });
+    expect(structureInputs[0]!.storeName).toBe("サンプル自習室 天神店");
+    expect(requests).toEqual([]); // 引き継ぎ帳のエージェントは呼ばない
+    expect(posted).toEqual([{ channel: "D_DEMO_AOI", text: "おつかれさま。トイレ、受け付けました。", thread: ts(86_400 * 9), ts: expect.any(String) }]);
+    expect(posted.find((p) => p.channel === "U_DEMO_OWNER")).toBeUndefined();
+
+    // 本文も写真もない投稿はアダプタの段階で落ちる(PDF だけなど)
+    expect(toReportEvent(dm({ subtype: "file_share", text: "", ts: ts(86_400 * 9 + 60), files: [{ id: "F51", mimetype: "application/pdf" }] }))).toBeNull();
+  });
+});
