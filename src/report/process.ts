@@ -11,7 +11,7 @@
 import type { ReportEvent } from "../channels/report-event";
 import { jstDate } from "../lib/time";
 import type { SlackClient } from "../slack/api";
-import { ensureBoard, markDone, resyncBoard } from "./board";
+import { ensureBoard, markDone, markNeedsRecheck, resyncBoard } from "./board";
 import type { Resolver } from "./clarify";
 import type { ModelCall } from "../knowledge/agent";
 import type { RuleDrafter } from "../rules/candidate";
@@ -37,6 +37,7 @@ export type ProcessOutcome =
       mergedInto: string | null;
       areas: string[];
       boardUpdated: number;
+      needsRecheck: number;
       replied: boolean;
       findingId: string | null;
       ruleFindings: { findingId: string; ruleNo: number }[];
@@ -189,23 +190,29 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
 
   const date = jstDate(new Date(ev.sentAt)).iso;
   await ensureBoard(db, store.id, date);
-  const boardUpdated = await markDone(db, store.id, date, result.areas, mergedInto ?? reportId);
+  // 汚れ・ゴミが残っている箇所は完了にしない(要確認)。それ以外の箇所を完了に
+  const leftoverAreas = new Set(result.leftover.map((l) => l.area));
+  const boardUpdated = await markDone(db, store.id, date, result.areas.filter((a) => !leftoverAreas.has(a)), mergedInto ?? reportId);
+  const needsRecheck = await markNeedsRecheck(db, store.id, date, result.leftover, mergedInto ?? reportId);
 
   const findingId = hasTrouble ? await recordTrouble(db, deps, newId, store, sender, ev, result, reportId) : null;
   const ruleFindings = await recordRuleMatches(db, deps, newId, store, sender, ev, result, rules, images.length, reportId);
 
   let replied = false;
-  const reply = composeReply(result);
+  const reply = composeReply(result, (id) => areas.find((a) => a.id === id)?.name ?? id);
   if (reply) {
     const res: { ok: boolean; ts?: string } = await deps.slack
       .postMessage(ev.channelRef, reply, ev.threadRef)
       .catch(() => ({ ok: false }));
     replied = res.ok;
     // 聞き返しを送れたら記録する(1報告に1回だけ)。答えがこのスレッドに来たら版2を積む
-    if (res.ok && result.clarify_question) {
+    const asked = result.leftover.length
+      ? `${result.leftover.map((l) => `${areas.find((a) => a.id === l.area)?.name ?? l.area}の${l.what}`).join("、")}が見えます。拾ってもらえますか?`
+      : result.clarify_question;
+    if (res.ok && asked) {
       await db
         .prepare("INSERT OR IGNORE INTO clarifications (id, report_id, question, asked_ref, asked_at) VALUES (?, ?, ?, ?, ?)")
-        .bind(newId(), reportId, result.clarify_question, res.ts ?? null, new Date().toISOString())
+        .bind(newId(), reportId, asked, res.ts ?? null, new Date().toISOString())
         .run();
     }
   }
@@ -217,6 +224,7 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
     mergedInto,
     areas: result.areas,
     boardUpdated,
+    needsRecheck,
     replied,
     findingId,
     ruleFindings,
@@ -323,7 +331,19 @@ async function processClarifyAnswer(
     .run();
 
   // ボードの日付は報告の送信時刻で決まる(答えた時刻ではない)
-  await resyncBoard(db, store.id, jstDate(new Date(report.sent_at)).iso, report.merged_into_report_id ?? report.id);
+  const boardDate = jstDate(new Date(report.sent_at)).iso;
+  const rootId = report.merged_into_report_id ?? report.id;
+  await resyncBoard(db, store.id, boardDate, rootId);
+  // 「拾ってもらえますか」に「拾いました」と答えたら、要確認の箇所を完了にする
+  if (result.leftover_cleared) {
+    await db
+      .prepare(
+        `UPDATE board_items SET status = 'done', recheck_note = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+          WHERE store_id = ? AND date = ? AND status = 'needs_recheck' AND done_report_id = ?`,
+      )
+      .bind(store.id, boardDate, rootId)
+      .run();
+  }
 
   const res = await deps.slack.postMessage(ev.channelRef, result.reply, ev.threadRef).catch(() => ({ ok: false }));
   return { kind: "clarified", reportId: report.id, version, areas: result.areas, replied: res.ok };

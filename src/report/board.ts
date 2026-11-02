@@ -14,6 +14,23 @@ export async function ensureBoard(db: D1Database, storeId: string, date: string)
     .run();
 }
 
+// 清掃後の写真に汚れ・ゴミが残っている箇所は「完了」にせず「要確認」で止める(理由を残す)。すでに完了の箇所には触らない
+export async function markNeedsRecheck(db: D1Database, storeId: string, date: string, items: { area: string; what: string }[], reportId: string): Promise<number> {
+  let n = 0;
+  for (const it of items) {
+    const res = await db
+      .prepare(
+        `UPDATE board_items
+            SET status = 'needs_recheck', done_report_id = ?, recheck_note = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+          WHERE store_id = ? AND date = ? AND area_id = ? AND status <> 'done'`,
+      )
+      .bind(reportId, it.what, storeId, date, it.area)
+      .run();
+    n += res.meta.changes ?? 0;
+  }
+  return n;
+}
+
 export async function markDone(
   db: D1Database,
   storeId: string,
@@ -26,7 +43,7 @@ export async function markDone(
   const res = await db
     .prepare(
       `UPDATE board_items
-          SET status = 'done', done_report_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+          SET status = 'done', done_report_id = ?, recheck_note = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
         WHERE store_id = ? AND date = ? AND status <> 'done' AND area_id IN (${placeholders})`,
     )
     .bind(reportId, storeId, date, ...areaIds)
@@ -49,8 +66,8 @@ export async function resyncBoard(db: D1Database, storeId: string, date: string,
   await db
     .prepare(
       `UPDATE board_items
-          SET status = 'pending', done_report_id = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-        WHERE store_id = ? AND date = ? AND done_report_id = ?${areas.length ? ` AND area_id NOT IN (${placeholders})` : ""}`,
+          SET status = 'pending', done_report_id = NULL, recheck_note = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+        WHERE store_id = ? AND date = ? AND done_report_id = ? AND status = 'done'${areas.length ? ` AND area_id NOT IN (${placeholders})` : ""}`,
     )
     .bind(storeId, date, rootReportId, ...areas)
     .run();
@@ -73,7 +90,7 @@ export async function carryOver(db: D1Database, storeId: string, date: string, y
           AND t.area_id IN (SELECT id FROM areas WHERE store_id = ? AND active = 1 AND frequency = 'daily')
           AND EXISTS (SELECT 1 FROM board_items y
                        WHERE y.store_id = t.store_id AND y.date = ? AND y.area_id = t.area_id
-                         AND y.status IN ('pending', 'carried_over'))`,
+                         AND y.status IN ('pending', 'carried_over', 'needs_recheck'))`,
     )
     .bind(yesterday, storeId, date, storeId, yesterday)
     .run();

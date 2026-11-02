@@ -32,7 +32,8 @@ ul.board li { display: flex; justify-content: space-between; align-items: center
 ul.board li:first-child { border-top: 0; }
 .status { font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
 .status.done { color: var(--done); } .status.pending { color: var(--pending); }
-.status.carried_over { color: var(--carried); } .status.no_assignee { color: var(--none); }
+.status.carried_over { color: var(--carried); } .status.no_assignee { color: var(--none); } .status.needs_recheck { color: var(--carried); }
+.note { display: block; font-size: 0.8rem; color: var(--muted); }
 a { color: var(--accent); }
 ul.stores { list-style: none; padding: 0; margin: 0; }
 ul.stores li a { display: block; padding: 12px 0; min-height: 44px; border-top: 1px solid var(--line); text-decoration: none; }

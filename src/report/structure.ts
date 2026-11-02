@@ -32,6 +32,7 @@ export type StructureResult = {
   clarify_question: string | null;
   reply: string;
   rule_matches: { rule_no: number; evidence: string }[];
+  leftover: { area: string; what: string }[]; // 清掃後の写真に残っている汚れ・ゴミ(箇所ごと)
 };
 
 export type StructureUsage = { model: string; input_tokens: number; output_tokens: number };
@@ -71,6 +72,19 @@ function tool(areaIds: string[], ruleNos: number[]): Anthropic.Tool {
           description:
             "報告された内容に確信が持てない点があるときだけ、その1点を確かめる質問を1文で(例: 「トイレットペーパーが残り1つに見えますが、合ってますか?」)。疑問符は1つだけ。報告にない箇所や作業を尋ねない(「〜もやっていたら教えて」は不可)。迷う点が複数あっても、記録に一番効く1点だけにする。なければ null",
         },
+        leftover: {
+          type: "array",
+          description:
+            "清掃後の写真なのに、汚れ・ゴミ・紙くずが残っていると確かに見える箇所。見えないときは空。推測で入れない。入れた箇所は「完了」にならず「要確認」になり、スタッフに拾ってもらうよう頼む",
+          items: {
+            type: "object",
+            properties: {
+              area: areaIds.length ? { type: "string", enum: areaIds } : { type: "string" },
+              what: { type: "string", description: "何がどこに残っているか(1文。例: 床に紙くずが数か所)" },
+            },
+            required: ["area", "what"],
+          },
+        },
         rule_matches: {
           type: "array",
           description:
@@ -90,7 +104,7 @@ function tool(areaIds: string[], ruleNos: number[]): Anthropic.Tool {
             "清掃報告のときだけ、スレッドに返す受付の文。ねぎらい + 受け付けた箇所を1〜2文。質問は入れない(聞き返しは clarify_question に書くと、システムが後ろにつなげて送る)。責めない。清掃報告でなければ空文字",
         },
       },
-      required: ["categories", "areas", "supplies_out", "trouble", "memo", "confidence", "clarify_question", "rule_matches", "reply"],
+      required: ["categories", "areas", "supplies_out", "trouble", "memo", "confidence", "clarify_question", "leftover", "rule_matches", "reply"],
     },
   };
 }
@@ -106,7 +120,8 @@ function system(input: StructureInput): string {
     areas || "(なし)",
     "",
     "決まりごと:",
-    "- 写真は清掃後の様子として見る。写っている場所から清掃箇所を判定する。写真から分かる備品の残量・汚れ・ゴミの放置も拾う",
+    "- 写真は清掃後の様子として見る。写っている場所から清掃箇所を判定する。写真から分かる備品の残量も拾う",
+    "- 清掃後なのに汚れ・ゴミ・紙くずが残って見えるときは leftover に箇所と何が残っているかを入れる。その箇所は完了にならず、スタッフに拾ってもらう頼みをシステムが添える。「清掃後の写真で合ってますか」とは聞かない(写真は清掃後と決めてある)。leftover は trouble ではない(trouble は故障・放置された粗大ゴミ・違反など、スタッフの清掃の範囲を超えるもの)",
     "- 読み取れないことを推測で埋めない。迷ったら confidence を下げる",
     "- 聞き返しは1回、1つだけ。報告された内容のうち確かめないと記録が誤る1点だけを clarify_question に書く。報告にない箇所や作業を尋ねない。確かめることがなければ null",
     "- 受付の文(reply)はスタッフへの返事。ねぎらいを先に、短く、責めない。オーナーの口調に寄せる。reply には質問を書かない",
@@ -184,10 +199,18 @@ function withoutQuestions(reply: string): string {
 }
 
 // スレッドに返す文: 受付 + (あれば)聞き返し1つ
-export function composeReply(result: Pick<StructureResult, "reply" | "clarify_question">): string {
+// 残っている汚れ・ゴミがあれば、問いの代わりに「拾ってもらえますか」を添える(聞き返しは1回なので、両方は送らない)
+export function composeReply(
+  result: Pick<StructureResult, "reply" | "clarify_question" | "leftover">,
+  areaName: (id: string) => string = (id) => id,
+): string {
   const ack = result.reply;
-  const q = result.clarify_question;
   if (!ack) return "";
+  if (result.leftover.length) {
+    const seen = result.leftover.map((l) => `${areaName(l.area)}の${l.what}`).join("、");
+    return `${ack}\n${seen}が見えます。拾ってもらえますか? 終わったらこのスレッドに一言ください。`;
+  }
+  const q = result.clarify_question;
   return q ? `${ack}\n${q}` : ack;
 }
 
@@ -206,6 +229,9 @@ export function normalize(raw: Partial<StructureResult>, areaIds: string[], rule
     confidence: conf,
     clarify_question: singleQuestion(raw.clarify_question),
     reply: withoutQuestions((raw.reply ?? "").trim()),
+    leftover: (raw.leftover ?? [])
+      .filter((l) => l && known.has(String(l.area)) && typeof l.what === "string" && l.what.trim())
+      .map((l) => ({ area: String(l.area), what: l.what.trim() })),
     // 照合に渡したルールの番号だけを残す(知らない番号は捨てる)
     rule_matches: (raw.rule_matches ?? [])
       .filter((m) => m && rules.has(Number(m.rule_no)) && typeof m.evidence === "string" && m.evidence.trim())

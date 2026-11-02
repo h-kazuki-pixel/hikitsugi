@@ -117,8 +117,8 @@ describe("聞き返しは1つだけ(仕様 4章)", () => {
   it("全角の疑問符も1つで切り、問いがなければ受付だけ返す", () => {
     expect(singleQuestion("2階は階段のことですか？ 3階もですか？")).toBe("2階は階段のことですか？");
     expect(singleQuestion("  ")).toBeNull();
-    expect(composeReply({ reply: "おつかれさま。受け付けました。", clarify_question: null })).toBe("おつかれさま。受け付けました。");
-    expect(composeReply({ reply: "", clarify_question: "合ってますか?" })).toBe("");
+    expect(composeReply({ reply: "おつかれさま。受け付けました。", clarify_question: null, leftover: [] })).toBe("おつかれさま。受け付けました。");
+    expect(composeReply({ reply: "", clarify_question: "合ってますか?", leftover: [] })).toBe("");
   });
 });
 
@@ -268,5 +268,38 @@ describe("聞き返しへの答えで版2を積む(仕様 4章)", () => {
     const { deps, resolveInputs } = fakes(ASKED);
     expect(await processReportEvent(db(), toReportEvent(sota({ thread_ts: day(900), ts: day(960), text: "了解です" }))!, deps)).toEqual({ kind: "ignored", reason: "thread_reply" });
     expect(resolveInputs).toEqual([]);
+  });
+});
+
+describe("汚れが残っている写真は完了にしない(11/3 実機: 紙くずと汚れが写った写真が完了になった)", () => {
+  // 11/9(月)18:00 JST
+  const mon = (offsetSec: number) => (Date.UTC(2026, 10, 9, 9, 0) / 1000 + offsetSec).toFixed(6);
+  const DIRTY: Partial<StructureResult> = {
+    categories: ["cleaning_report"],
+    areas: ["tenjin_toilet", "tenjin_trash"],
+    confidence: 0.8,
+    clarify_question: "この写真は清掃が終わった後のもので合ってますか?",
+    leftover: [{ area: "tenjin_toilet", what: "床に紙くずが数か所と黒っぽい汚れ" }],
+    reply: "あおいさん、おつかれさま!トイレとゴミ置き場、受け付けました。",
+  };
+
+  it("残っている箇所は「要確認」、ほかは完了。問いの代わりに拾ってもらう頼みを1つだけ送る", async () => {
+    const { deps, posted } = fakes(DIRTY);
+    const out = await processReportEvent(db(), toReportEvent(msg({ subtype: "file_share", ts: mon(0), text: "", files: [{ id: "F40", mimetype: "image/jpeg", thumb_1024: "https://files.example/d" }] }))!, deps);
+    expect(out).toMatchObject({ kind: "report", boardUpdated: 1, needsRecheck: 1 });
+    expect(posted[0]!.text).toBe("あおいさん、おつかれさま!トイレとゴミ置き場、受け付けました。\nトイレの床に紙くずが数か所と黒っぽい汚れが見えます。拾ってもらえますか? 終わったらこのスレッドに一言ください。");
+    expect(posted[0]!.text.match(/[?？]/g)).toHaveLength(1);
+    const board = await db().prepare("SELECT area_id, status, recheck_note FROM board_items WHERE store_id = 'tenjin' AND date = '2026-11-09' AND status <> 'pending' ORDER BY area_id").all();
+    expect(board.results).toEqual([
+      { area_id: "tenjin_toilet", status: "needs_recheck", recheck_note: "床に紙くずが数か所と黒っぽい汚れ" },
+      { area_id: "tenjin_trash", status: "done", recheck_note: null },
+    ]);
+  });
+
+  it("本人が「拾いました」と答えたら完了になる", async () => {
+    const { deps } = fakes(DIRTY, { areas: ["tenjin_toilet", "tenjin_trash"], confidence: 0.95, leftover_cleared: true, reply: "ありがとう!トイレも完了で記録しました。" });
+    const out = await processReportEvent(db(), toReportEvent(msg({ thread_ts: mon(0), ts: mon(300), text: "拾いました!" }))!, deps);
+    expect(out).toMatchObject({ kind: "clarified", version: 2 });
+    expect(await db().prepare("SELECT status, recheck_note FROM board_items WHERE id = 'tenjin:2026-11-09:tenjin_toilet'").first()).toEqual({ status: "done", recheck_note: null });
   });
 });
