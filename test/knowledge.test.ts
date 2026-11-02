@@ -8,6 +8,7 @@ import type { ModelCall } from "../src/knowledge/agent";
 import { TEXT } from "../src/knowledge/handle";
 import { searchKnowledge, similarity } from "../src/knowledge/search";
 import { normalizeAnswer } from "../src/report/clarify";
+import type { RuleCheckInput, RuleCheckResult } from "../src/report/rulecheck";
 import { processReportEvent, type ProcessDeps } from "../src/report/process";
 import { normalize, type StructureInput, type StructureResult } from "../src/report/structure";
 import type { SlackClient } from "../src/slack/api";
@@ -50,7 +51,8 @@ function scripted(turns: Block[][]) {
 // Slack の ts はワークスペースの中で重ならないので、差し替えでも通しで数える
 let slackTs = 0;
 
-function fakes(turns: Block[][], structured: Partial<StructureResult> = { categories: ["question"], areas: [], reply: "" }) {
+function fakes(turns: Block[][], structured: Partial<StructureResult> = { categories: ["question"], areas: [], reply: "" }, ruleCheck: RuleCheckResult = []) {
+  const ruleCheckInputs: RuleCheckInput[] = [];
   const posted: { channel: string; text: string; thread?: string; ts: string }[] = [];
   const slack: SlackClient = {
     async postMessage(channel, text, thread) {
@@ -69,6 +71,10 @@ function fakes(turns: Block[][], structured: Partial<StructureResult> = { catego
   const deps: ProcessDeps = {
     slack,
     agent: model.call,
+    checkRules: async (input) => {
+      ruleCheckInputs.push(input);
+      return { result: ruleCheck, usage: { model: "t", input_tokens: 1, output_tokens: 1 } };
+    },
     draftRule: async (input) => {
       drafted.push(input);
       return { natural_text: "加湿器は机上のみ可" };
@@ -86,7 +92,7 @@ function fakes(turns: Block[][], structured: Partial<StructureResult> = { catego
     },
     resolve: async (input) => ({ result: normalizeAnswer({}, input.areas.map((a) => a.id)), usage: { model: "t", input_tokens: 1, output_tokens: 1 } }),
   };
-  return { deps, posted, requests: model.requests, drafted, structureInputs };
+  return { deps, posted, requests: model.requests, drafted, structureInputs, ruleCheckInputs };
 }
 
 describe("引き継ぎ帳の検索", () => {
@@ -277,18 +283,22 @@ describe("翌週の清掃報告: 承認したルールに照らして検出し�
   const thu = (Date.UTC(2026, 10, 12, 10, 30) / 1000).toFixed(6);
 
   it("写真から床置きの加湿器を拾い、ルール6の原文と元の質問を判断経路に残し、オーナーに知らせる", async () => {
-    const { deps, posted, structureInputs } = fakes([], {
-      categories: ["cleaning_report"],
-      areas: ["tenjin_floor"],
-      confidence: 0.9,
-      clarify_question: null,
-      reply: "おつかれさま。床・デスク、受け付けました。",
-      rule_matches: [
-        { rule_no: 6, evidence: "窓際の床に加湿器が置かれている" },
-        { rule_no: 99, evidence: "知らないルール" },
-        { rule_no: 1, evidence: "判断の基準ではないルール" },
-      ],
-    });
+    const { deps, posted, structureInputs, ruleCheckInputs } = fakes(
+      [],
+      {
+        categories: ["cleaning_report"],
+        areas: ["tenjin_floor"],
+        confidence: 0.9,
+        clarify_question: null,
+        reply: "おつかれさま。床・デスク、受け付けました。",
+        rule_matches: [
+          { rule_no: 99, evidence: "知らないルール" },
+          { rule_no: 1, evidence: "判断の基準ではないルール" },
+        ],
+      },
+      // 照合は別の呼び出し(11/3 実機で構造化に混ぜると拾えなかった)
+      [{ rule_no: 6, violated: true, evidence: "窓際の床に加湿器が置かれている" }],
+    );
     const ev = toReportEvent({
       type: "message",
       subtype: "file_share",
@@ -303,6 +313,8 @@ describe("翌週の清掃報告: 承認したルールに照らして検出し�
 
     // 照合に渡すのは有効な「判断の基準」のルールだけ(面談の通知ルールは渡さない)
     expect(structureInputs[0]!.rules).toEqual([{ no: 6, text: "加湿器は机上のみ可" }]);
+    expect(ruleCheckInputs[0]).toMatchObject({ storeName: "サンプル自習室 天神店", rules: [{ no: 6, text: "加湿器は机上のみ可" }] });
+    expect(ruleCheckInputs[0]!.images).toHaveLength(1);
     expect(out).toMatchObject({ kind: "report", ruleFindings: [{ ruleNo: 6 }] });
 
     // スタッフには受付だけ。ルールの話はしない

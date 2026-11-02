@@ -18,9 +18,11 @@ import type { RuleDrafter } from "../rules/candidate";
 import { md, ruleOrigin } from "../rules/origin";
 import { handleOwnerAnswer, handleQuestion, lookupPerson, type QuestionOutcome } from "../knowledge/handle";
 import { composeReply, type Structurer, type StructureResult } from "./structure";
+import type { RuleChecker } from "./rulecheck";
 
 export type ProcessDeps = {
   structure: Structurer;
+  checkRules: RuleChecker; // 写真・本文を承認済みルールに照らす(写真つきでルールがあるときだけ)
   resolve: Resolver;
   agent: ModelCall; // 引き継ぎ帳のエージェント(claude-opus-5-5)
   draftRule: RuleDrafter; // 判断の答えからルール候補の文面を下書きする
@@ -129,6 +131,16 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   // Claude 呼び出し1回あたりの消費を実測する(本文は出さない)
   console.log(JSON.stringify({ claude: "structure", ...usage, images: images.length, categories: result.categories }));
 
+  // ルールの照合は別の呼び出し(写真つきで、有効な判断の基準があるときだけ)。構造化が拾った分と合わせる
+  if (images.length && rules.length) {
+    const check = await deps.checkRules({ storeName: store.name, text: ev.text, images, rules: rules.map((r) => ({ no: r.rule_no, text: r.natural_text })) });
+    console.log(JSON.stringify({ claude: "rule_check", ...check.usage, rules: rules.length, violated: check.result.filter((c) => c.violated).map((c) => c.rule_no) }));
+    const seen = new Set(result.rule_matches.map((m) => m.rule_no));
+    for (const c of check.result) {
+      if (c.violated && !seen.has(c.rule_no)) result.rule_matches.push({ rule_no: c.rule_no, evidence: c.evidence });
+    }
+  }
+
   const isReport = result.categories.includes("cleaning_report");
   const hasTrouble = result.categories.includes("request_trouble") || !!result.trouble;
   // 質問は引き継ぎ帳へ(報告と質問の両方に当たる投稿は両方)
@@ -213,6 +225,8 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   const ruleFindings = await recordRuleMatches(db, deps, newId, store, sender, ev, result, rules, images.length, reportId);
 
   let replied = false;
+  // 畳み込んだ送信にも受付は返す(11/3 実機: 5分以内の2通目に返事がなく、無視されたように見えた)
+  if (!result.reply) result.reply = mergedInto ? "受け付けました。さっきの報告にまとめておきますね。" : "おつかれさま。受け付けました。";
   const reply = composeReply(result, (id) => areas.find((a) => a.id === id)?.name ?? id);
   if (reply) {
     const res: { ok: boolean; ts?: string } = await deps.slack

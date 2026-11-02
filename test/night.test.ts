@@ -157,6 +157,7 @@ describe("夜の突き合わせ", () => {
       structure: async (input) => ({ result: normalize({ categories: ["cleaning_report"], areas: ["tenjin_toilet"], reply: "おつかれさま。" }, input.areas.map((a) => a.id)), usage: { model: "t", input_tokens: 1, output_tokens: 1 } }),
       resolve: async (input) => ({ result: normalizeAnswer({}, input.areas.map((a) => a.id)), usage: { model: "t", input_tokens: 1, output_tokens: 1 } }),
       agent: model.call,
+      checkRules: async () => ({ result: [], usage: { model: "t", input_tokens: 1, output_tokens: 1 } }),
       draftRule: async () => ({ natural_text: "" }),
     });
 
