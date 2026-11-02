@@ -1,0 +1,21 @@
+# demo 環境(架空データ・公開): main への push で、テスト → マイグレーション → seed → デプロイ
+name: deploy-demo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  deploy:
+    needs: test
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: demo
+    secrets: inherit

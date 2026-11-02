@@ -1,0 +1,116 @@
+# デプロイの本体(demo / production から呼ばれる)
+#
+# 順番: D1 マイグレーション → (demo だけ)架空の seed → wrangler deploy → Worker の秘密情報 → 動作確認
+#
+# - Cloudflare のトークンとアカウントID はリポジトリの Secrets(CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID)
+# - Worker の秘密情報は GitHub の Environment(demo / production)ごとの Secrets に置く。
+#   demo と production は Slack アプリもワークスペースも別なので、同じ名前で中身を分ける
+# - 秘密情報が未登録なら飛ばす(落とさない)。リポジトリにもログにも値は出さない
+name: _deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy.outputs.url }}
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: "false"
+      TARGET_ENV: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Cloudflare の資格情報を確かめる
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::GitHub Secrets に CLOUDFLARE_API_TOKEN と CLOUDFLARE_ACCOUNT_ID を登録してください"
+            exit 1
+          fi
+
+      - name: D1 マイグレーション
+        run: npx wrangler d1 migrations apply DB --remote --env "$TARGET_ENV"
+
+      - name: 架空の seed(demo だけ。INSERT OR IGNORE なので何度流しても同じ)
+        if: inputs.environment == 'demo'
+        run: |
+          node scripts/build-seed.mjs
+          npx wrangler d1 execute DB --remote --env demo --file seed/demo.sql
+
+      - name: wrangler deploy
+        id: deploy
+        run: |
+          set -o pipefail
+          npx wrangler deploy --env "$TARGET_ENV" 2>&1 | tee deploy.log
+          url=$(grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' deploy.log | head -1 || true)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Worker の秘密情報を流し込む(未登録のものは飛ばす)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          ENTRY_WEBHOOK_SECRET: ${{ secrets.ENTRY_WEBHOOK_SECRET }}
+          ACCESS_TEAM_DOMAIN: ${{ secrets.ACCESS_TEAM_DOMAIN }}
+          ACCESS_AUD: ${{ secrets.ACCESS_AUD }}
+        run: |
+          names="ANTHROPIC_API_KEY SLACK_SIGNING_SECRET SLACK_BOT_TOKEN ENTRY_WEBHOOK_SECRET"
+          if [ "$TARGET_ENV" = "production" ]; then names="$names ACCESS_TEAM_DOMAIN ACCESS_AUD"; fi
+          for name in $names; do
+            value="${!name}"
+            if [ -z "$value" ]; then
+              echo "::notice::$name は未登録なので飛ばしました($TARGET_ENV)"
+              continue
+            fi
+            printf '%s' "$value" | npx wrangler secret put "$name" --env "$TARGET_ENV" > /dev/null
+            echo "$name を設定しました($TARGET_ENV)"
+          done
+
+      - name: 動作確認
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          if [ -z "$URL" ]; then
+            echo "::warning::デプロイ先の URL を読み取れませんでした。Cloudflare ダッシュボードで workers.dev のサブドメインを確認してください"
+            exit 0
+          fi
+          if [ "$TARGET_ENV" = "demo" ]; then
+            path="/stores/tenjin"; expect=200
+          else
+            # production は Access の JWT なしでは 403 になることを確かめる(実店舗の画面が素通しになっていない)
+            path="/"; expect=403
+          fi
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o body.html -w '%{http_code}' "$URL$path" || true)
+            [ "$code" = "$expect" ] && break
+            sleep 5
+          done
+          echo "$URL$path → $code(期待値 $expect)"
+          [ "$code" = "$expect" ] || { echo "::error::動作確認に失敗しました"; exit 1; }
+          if [ "$TARGET_ENV" = "demo" ]; then grep -q "サンプル自習室 天神店" body.html; fi
+          {
+            echo "### $TARGET_ENV にデプロイしました"
+            echo ""
+            echo "- URL: $URL$path"
+            echo "- 動作確認: $code"
+          } >> "$GITHUB_STEP_SUMMARY"

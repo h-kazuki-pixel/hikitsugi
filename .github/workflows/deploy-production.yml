@@ -1,0 +1,51 @@
+# production 環境(実店舗): 手動実行(workflow_dispatch)だけ。push では動かない
+#
+# Cloudflare Access を設定するまで実行しない(README「production の公開手順」)。
+# 念のため、Access の設定(ACCESS_TEAM_DOMAIN / ACCESS_AUD)が production の Secrets にないと、
+# 何もデプロイせずに止まる。seed は流さない(架空データを実店舗の D1 に入れない)。
+name: deploy-production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: '実店舗の環境にデプロイします。確認のため "production" と入力してください'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: 実行の確認
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "production" ]; then
+            echo "::error::確認の入力が \"production\" ではないので止めました"
+            exit 1
+          fi
+      - name: Cloudflare Access の設定があるか確かめる
+        env:
+          ACCESS_TEAM_DOMAIN: ${{ secrets.ACCESS_TEAM_DOMAIN }}
+          ACCESS_AUD: ${{ secrets.ACCESS_AUD }}
+        run: |
+          if [ -z "$ACCESS_TEAM_DOMAIN" ] || [ -z "$ACCESS_AUD" ]; then
+            echo "::error::production の Secrets に ACCESS_TEAM_DOMAIN と ACCESS_AUD がありません。README の手順で Cloudflare Access を設定してから実行してください"
+            exit 1
+          fi
+
+  test:
+    needs: preflight
+    uses: ./.github/workflows/test.yml
+
+  deploy:
+    needs: test
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: production
+    secrets: inherit
