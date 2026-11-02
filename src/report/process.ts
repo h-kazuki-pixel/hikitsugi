@@ -11,11 +11,13 @@
 import type { ReportEvent } from "../channels/report-event";
 import { jstDate } from "../lib/time";
 import type { SlackClient } from "../slack/api";
-import { ensureBoard, markDone } from "./board";
+import { ensureBoard, markDone, resyncBoard } from "./board";
+import type { Resolver } from "./clarify";
 import { composeReply, type Structurer, type StructureResult } from "./structure";
 
 export type ProcessDeps = {
   structure: Structurer;
+  resolve: Resolver;
   slack: SlackClient;
   newId?: () => string;
 };
@@ -31,7 +33,8 @@ export type ProcessOutcome =
       boardUpdated: number;
       replied: boolean;
       findingId: string | null;
-    };
+    }
+  | { kind: "clarified"; reportId: string; version: number; areas: string[]; replied: boolean };
 
 const MAX_IMAGES = 4;
 
@@ -41,15 +44,17 @@ type Person = { id: string; display_name: string; role: "staff" | "sub" | "owner
 export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: ProcessDeps): Promise<ProcessOutcome> {
   const newId = deps.newId ?? (() => crypto.randomUUID());
 
-  // 引き継ぎ帳(DM の質問)と、聞き返しへのスレッド返事は次の段階で扱う
+  // 引き継ぎ帳(DM の質問)は次の段階で扱う
   if (ev.isDirect) return { kind: "ignored", reason: "direct_message" };
-  if (ev.isReplyInThread) return { kind: "ignored", reason: "thread_reply" };
 
   const store = await db
     .prepare("SELECT id, name, tone_sample FROM stores WHERE slack_channel_id = ?")
     .bind(ev.channelRef)
     .first<Store>();
   if (!store) return { kind: "ignored", reason: "unknown_channel" };
+
+  // スレッドの中の返事は、聞き返しへの答えのときだけ扱う(報告として数えない)
+  if (ev.isReplyInThread) return processClarifyAnswer(db, ev, deps, newId, store);
 
   // Slack の再送やキューの再配達で同じ送信が二度来ても、一度しか処理しない
   const seen = await db
@@ -162,11 +167,121 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   let replied = false;
   const reply = composeReply(result);
   if (reply) {
-    const res = await deps.slack.postMessage(ev.channelRef, reply, ev.threadRef).catch(() => ({ ok: false }));
+    const res: { ok: boolean; ts?: string } = await deps.slack
+      .postMessage(ev.channelRef, reply, ev.threadRef)
+      .catch(() => ({ ok: false }));
     replied = res.ok;
+    // 聞き返しを送れたら記録する(1報告に1回だけ)。答えがこのスレッドに来たら版2を積む
+    if (res.ok && result.clarify_question) {
+      await db
+        .prepare("INSERT OR IGNORE INTO clarifications (id, report_id, question, asked_ref, asked_at) VALUES (?, ?, ?, ?, ?)")
+        .bind(newId(), reportId, result.clarify_question, res.ts ?? null, new Date().toISOString())
+        .run();
+    }
   }
 
   return { kind: "report", reportId, mergedInto, areas: result.areas, boardUpdated, replied, findingId };
+}
+
+// 聞き返しへの答え: 報告した本人が、問いを載せた受付のスレッドで答えたら、版2を積んでボードを合わせ直す
+async function processClarifyAnswer(
+  db: D1Database,
+  ev: ReportEvent,
+  deps: ProcessDeps,
+  newId: () => string,
+  store: Store,
+): Promise<ProcessOutcome> {
+  const report = await db
+    .prepare(
+      `SELECT r.id, r.sender_ref, r.sent_at, r.raw_text, r.image_ids, r.merged_into_report_id,
+              c.question
+         FROM reports r JOIN clarifications c ON c.report_id = r.id
+        WHERE r.channel = ? AND r.channel_ref = ? AND r.message_ref = ?`,
+    )
+    .bind(ev.channel, ev.channelRef, ev.threadRef)
+    .first<{
+      id: string;
+      sender_ref: string;
+      sent_at: string;
+      raw_text: string;
+      image_ids: string;
+      merged_into_report_id: string | null;
+      question: string;
+    }>();
+  if (!report) return { kind: "ignored", reason: "thread_reply" };
+  if (report.sender_ref !== ev.senderRef) return { kind: "ignored", reason: "not_reporter" };
+
+  // 聞き返しは1回だけ。答えが一度反映されたら、それ以降のスレッドの投稿では版を積まない
+  const answered = await db
+    .prepare("SELECT 1 FROM report_versions WHERE report_id = ? AND basis = 'staff_reply'")
+    .bind(report.id)
+    .first();
+  if (answered) return { kind: "ignored", reason: "already_answered" };
+
+  const cur = await db
+    .prepare("SELECT version, performer_staff_id, areas, supplies_out, trouble, memo, confidence FROM reports_current WHERE id = ?")
+    .bind(report.id)
+    .first<{
+      version: number;
+      performer_staff_id: string | null;
+      areas: string;
+      supplies_out: string;
+      trouble: string | null;
+      memo: string | null;
+      confidence: number | null;
+    }>();
+  if (!cur) return { kind: "ignored", reason: "thread_reply" };
+
+  const { results: areas } = await db
+    .prepare("SELECT id, name FROM areas WHERE store_id = ? AND active = 1 ORDER BY sort_order")
+    .bind(store.id)
+    .all<{ id: string; name: string }>();
+
+  const { result, usage } = await deps.resolve({
+    storeName: store.name,
+    areas,
+    originalText: report.raw_text,
+    imageCount: (JSON.parse(report.image_ids) as string[]).length,
+    current: {
+      areas: JSON.parse(cur.areas) as string[],
+      supplies_out: JSON.parse(cur.supplies_out) as string[],
+      trouble: cur.trouble,
+      memo: cur.memo,
+      confidence: cur.confidence,
+    },
+    question: report.question,
+    answer: ev.text,
+    toneSample: store.tone_sample,
+  });
+  console.log(JSON.stringify({ claude: "clarify_answer", ...usage }));
+
+  const version = cur.version + 1;
+  await db
+    .prepare(
+      `INSERT INTO report_versions (id, report_id, version, performer_staff_id, areas, supplies_out, trouble, memo,
+                                    confidence, basis, basis_ref, model)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'staff_reply', ?, ?)`,
+    )
+    .bind(
+      newId(),
+      report.id,
+      version,
+      cur.performer_staff_id,
+      JSON.stringify(result.areas),
+      JSON.stringify(result.supplies_out),
+      result.trouble,
+      result.memo,
+      result.confidence,
+      ev.messageRef,
+      usage.model,
+    )
+    .run();
+
+  // ボードの日付は報告の送信時刻で決まる(答えた時刻ではない)
+  await resyncBoard(db, store.id, jstDate(new Date(report.sent_at)).iso, report.merged_into_report_id ?? report.id);
+
+  const res = await deps.slack.postMessage(ev.channelRef, result.reply, ev.threadRef).catch(() => ({ ok: false }));
+  return { kind: "clarified", reportId: report.id, version, areas: result.areas, replied: res.ok };
 }
 
 // トラブルは検出事項に回し、オーナーに即時で知らせる(運営宛てなので承認不要。設計書 5-4)

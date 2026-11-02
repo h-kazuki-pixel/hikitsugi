@@ -33,3 +33,26 @@ export async function markDone(
     .run();
   return res.meta.changes ?? 0;
 }
+
+// 版が積まれたあと(聞き返しの答えなど)に、畳み込み先の報告が完了にしている箇所を最新の版に合わせ直す。
+// 畳み込みでまとめた送信すべての最新の版の箇所を合わせたものが「この報告で完了」の箇所。
+// 外れた箇所は未清掃に戻す(ほかの報告が完了にした箇所には触らない)。
+export async function resyncBoard(db: D1Database, storeId: string, date: string, rootReportId: string): Promise<void> {
+  const { results } = await db
+    .prepare("SELECT areas FROM reports_current WHERE id = ? OR merged_into_report_id = ?")
+    .bind(rootReportId, rootReportId)
+    .all<{ areas: string | null }>();
+  const areas = [...new Set(results.flatMap((r) => JSON.parse(r.areas ?? "[]") as string[]))];
+
+  await ensureBoard(db, storeId, date);
+  const placeholders = areas.map(() => "?").join(", ");
+  await db
+    .prepare(
+      `UPDATE board_items
+          SET status = 'pending', done_report_id = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+        WHERE store_id = ? AND date = ? AND done_report_id = ?${areas.length ? ` AND area_id NOT IN (${placeholders})` : ""}`,
+    )
+    .bind(storeId, date, rootReportId, ...areas)
+    .run();
+  await markDone(db, storeId, date, areas, rootReportId);
+}

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env, Job } from "./env";
 import { accessGuard } from "./middleware/access-guard";
 import { processReportEvent } from "./report/process";
+import { claudeResolver } from "./report/clarify";
 import { claudeStructurer } from "./report/structure";
 import { slackClient } from "./slack/api";
 import { slack } from "./routes/slack";
@@ -44,6 +45,7 @@ export default {
           }
           const outcome = await processReportEvent(env.DB, job.event, {
             structure: claudeStructurer(env.ANTHROPIC_API_KEY),
+            resolve: claudeResolver(env.ANTHROPIC_API_KEY),
             slack: slackClient(env.SLACK_BOT_TOKEN),
           });
           console.log(JSON.stringify({ job: job.type, id: msg.id, outcome }));
