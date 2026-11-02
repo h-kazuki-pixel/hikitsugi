@@ -17,6 +17,7 @@ export type BoardRow = {
   status: "done" | "pending" | "carried_over" | "no_assignee" | "needs_recheck";
   carried_from_date?: string | null;
   recheck_note?: string | null;
+  done_basis?: "staff_word" | "photo" | null;
 };
 
 const CLEANING_TYPE_LABEL = { daily: "毎日の店", weekly: "週次巡回の店" } as const;
@@ -67,6 +68,8 @@ export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: Js
                 </span>
                 <span class={`status ${b.status}`}>
                   {STATUS_LABEL[b.status]}
+                  {b.status === "done" && b.done_basis === "staff_word" ? "(本人の申告)" : ""}
+                  {b.status === "done" && b.done_basis === "photo" ? "(写真で確認)" : ""}
                   {b.status === "carried_over" && b.carried_from_date
                     ? `(${Number(b.carried_from_date.slice(5, 7))}/${Number(b.carried_from_date.slice(8, 10))}から)`
                     : ""}

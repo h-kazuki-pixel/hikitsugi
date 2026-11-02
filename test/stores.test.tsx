@@ -38,14 +38,15 @@ describe("GET /stores/:id", () => {
   it("今日のボードに行があれば、箇所と状態を日本語で出す", async () => {
     const today = jstDate().iso;
     await proxy.env.DB.prepare(
-      "INSERT INTO board_items (id, store_id, date, area_id, status) VALUES ('t_b1', 'tenjin', ?, 'tenjin_toilet', 'pending'), ('t_b2', 'tenjin', ?, 'tenjin_trash', 'carried_over')",
+      "INSERT INTO board_items (id, store_id, date, area_id, status, done_basis) VALUES ('t_b1', 'tenjin', ?, 'tenjin_toilet', 'pending', NULL), ('t_b2', 'tenjin', ?, 'tenjin_trash', 'carried_over', NULL), ('t_b3', 'tenjin', ?, 'tenjin_drink', 'done', 'staff_word')",
     )
-      .bind(today, today)
+      .bind(today, today, today)
       .run();
     const html = await (await get("/stores/tenjin")).text();
     expect(html).toMatch(/トイレ<\/span><span class="status pending">未清掃/);
     expect(html).toMatch(/ゴミ置き場<\/span><span class="status carried_over">繰り越し/);
-    await proxy.env.DB.prepare("DELETE FROM board_items WHERE id IN ('t_b1', 't_b2')").run();
+    expect(html).toMatch(/ドリンク周り<\/span><span class="status done">完了(<!-- -->)?\(本人の申告\)/);
+    await proxy.env.DB.prepare("DELETE FROM board_items WHERE id IN ('t_b1', 't_b2', 't_b3')").run();
   });
 
   it("ない店舗は日本語の 404", async () => {
