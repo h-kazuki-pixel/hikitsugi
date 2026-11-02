@@ -56,3 +56,26 @@ export async function resyncBoard(db: D1Database, storeId: string, date: string,
     .run();
   await markDone(db, storeId, date, areas, rootReportId);
 }
+
+// 朝の繰り越し(仕様 5章「朝: 前日の未清掃を繰り越し、今日のボードを生成」)
+// 毎日の箇所で前日に完了しなかったものを、今日のボードで「繰り越し」にする。いつからの繰り越しかを残す。
+// 何度呼んでも同じ(今日の行が未清掃のときだけ変える)。前日のボードがなければ(動かし始めた日)繰り越さない。
+export async function carryOver(db: D1Database, storeId: string, date: string, yesterday: string): Promise<number> {
+  await ensureBoard(db, storeId, date);
+  const res = await db
+    .prepare(
+      `UPDATE board_items AS t
+          SET status = 'carried_over',
+              carried_from_date = (SELECT coalesce(y.carried_from_date, y.date) FROM board_items y
+                                    WHERE y.store_id = t.store_id AND y.date = ? AND y.area_id = t.area_id),
+              updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+        WHERE t.store_id = ? AND t.date = ? AND t.status = 'pending'
+          AND t.area_id IN (SELECT id FROM areas WHERE store_id = ? AND active = 1 AND frequency = 'daily')
+          AND EXISTS (SELECT 1 FROM board_items y
+                       WHERE y.store_id = t.store_id AND y.date = ? AND y.area_id = t.area_id
+                         AND y.status IN ('pending', 'carried_over'))`,
+    )
+    .bind(yesterday, storeId, date, storeId, yesterday)
+    .run();
+  return res.meta.changes ?? 0;
+}

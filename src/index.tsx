@@ -5,6 +5,7 @@ import { processReportEvent } from "./report/process";
 import Anthropic from "@anthropic-ai/sdk";
 import { claudeResolver } from "./report/clarify";
 import { claudeRuleDrafter } from "./rules/candidate";
+import { runMorning } from "./agent/morning";
 import { runNightCheck } from "./agent/night";
 import { jstDate } from "./lib/time";
 import { claudeStructurer } from "./report/structure";
@@ -85,8 +86,8 @@ export default {
             console.log(JSON.stringify({ claude: "night_check", store: st.id, ...out.usage, findings: out.findings.length, steps: out.path.map((p) => p.step) }));
           }
         } else {
-          // 朝の繰り越しと要約は次の段階で実装する
-          console.log(JSON.stringify({ job: job.type, slot: job.slot, id: msg.id }));
+          const out = await runMorning(env.DB, job.scheduledAt, { slack: env.SLACK_BOT_TOKEN ? slackClient(env.SLACK_BOT_TOKEN) : null });
+          console.log(JSON.stringify({ job: job.type, slot: job.slot, id: msg.id, stores_with_news: out.lines.length, sent: out.sent }));
         }
         msg.ack();
       } catch (err) {
