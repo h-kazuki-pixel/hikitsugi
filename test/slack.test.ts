@@ -62,6 +62,19 @@ describe("POST /slack/events", () => {
     expect(res.status).toBe(200);
   });
 
+  it("スタッフの投稿は共通の報告イベントにしてキューに積む。再送は積まない", async () => {
+    const sent: unknown[] = [];
+    const body = JSON.stringify({ type: "event_callback", event: { type: "message", user: "U_DEMO_AOI", channel: "C_DEMO_TENJIN", ts: "1761989100.000100", text: "トイレ終わりました" } });
+    const ts = String(now());
+    const headers = { "content-type": "application/json", "X-Slack-Request-Timestamp": ts, "X-Slack-Signature": await signSlack(SECRET, ts, body) };
+    const env = { ENVIRONMENT: "demo", SLACK_SIGNING_SECRET: SECRET, JOBS: { send: async (m: unknown) => void sent.push(m) } };
+    expect((await app.request("/slack/events", { method: "POST", headers, body }, env)).status).toBe(200);
+    expect(sent).toMatchObject([{ type: "report_event", event: { senderRef: "U_DEMO_AOI", channelRef: "C_DEMO_TENJIN", messageRef: "1761989100.000100" } }]);
+    const retry = await app.request("/slack/events", { method: "POST", headers: { ...headers, "X-Slack-Retry-Num": "1" }, body }, env);
+    expect(retry.status).toBe(200);
+    expect(sent).toHaveLength(1);
+  });
+
   it("署名が違うイベントは 401", async () => {
     expect((await post(eventBody, { badSig: true })).status).toBe(401);
   });

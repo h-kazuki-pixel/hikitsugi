@@ -159,7 +159,7 @@ seed は `INSERT OR IGNORE` なので、何度流しても同じ結果になる(
 
 9. **実際の Slack ID を結びつける**: seed の Slack ID は架空の形(`U_DEMO_…` / `C_DEMO_…`)なので、デモ用ワークスペースの実際の ID を Environment `demo` の Secret `DEMO_SLACK_IDS` に登録する。1行に1つ `owner=U…` `aoi=U…` `haruto=U…` `sota=U…` `tenjin=C…` `yakuin=C…` の形(使える名前は `scripts/ci/apply-demo-slack-ids.mjs`)。人の ID はプロフィール → ⋮ → メンバー ID をコピー、チャンネルの ID はチャンネル名を押した画面の一番下。登録後に deploy-demo を実行すると、seed のあとに UPDATE で結びつける。実際の ID はリポジトリにコミットしない
 
-受信 → 分類 → 構造化 → スレッド返事 → 畳み込みは次の段階で作る。
+店舗チャンネルの投稿は、署名を確かめてすぐ 200 を返し、共通の報告イベントにしてキューに積む(`src/channels/slack.ts`)。キューの中で、分類と構造化(`claude-sonnet-5-5`、写真つき、1回の呼び出し)→ 原本と版1 → 5分の畳み込み → ボードを完了に → スレッドに受付を返す(`src/report/process.ts`)。トラブルは検出事項にしてオーナーに DM で知らせる。オーナー・副担当の投稿は報告として数えない。DM の質問(引き継ぎ帳)と、聞き返しへのスレッド返事(版2)は次の段階で作る。
 
 ## ローカルで動かす
 

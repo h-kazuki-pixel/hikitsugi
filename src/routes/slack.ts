@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 import type { Env } from "../env";
+import { toReportEvent, type SlackMessageEvent } from "../channels/slack";
 import { verifySlackRequest } from "../slack/verify";
 
 // Slack Events API の受け口(設計書 7章、仕様 1-2)
 //
 // 方針: 署名を確かめたらすぐ 200 を返す(Slack は3秒以内に 200 が返らないと再送する)。
-// 受信 → 分類 → 構造化 → スレッド返事 → 畳み込みは次の段階でキューに積んで行う。今は入口だけ。
+// 受信 → 分類 → 構造化 → 畳み込み → ボード更新 → スレッド返事は、共通の報告イベントにしてキューで行う(src/report/process.ts)。
 //
 // 初回の設定について: Slack はマニフェストからアプリを作った瞬間に Request URL へ url_verification を送るが、
 // Signing Secret はアプリを作ったあとでないと手に入らない。そのため SLACK_SIGNING_SECRET が未設定の間だけは、
@@ -17,7 +18,7 @@ export const slack = new Hono<{ Bindings: Env }>();
 type SlackEnvelope = {
   type?: string;
   challenge?: string;
-  event?: { type?: string };
+  event?: SlackMessageEvent;
 };
 
 function parse(body: string): SlackEnvelope | null {
@@ -61,8 +62,12 @@ slack.post("/slack/events", async (c) => {
   }
 
   if (payload.type === "event_callback") {
-    // 次の段階: ここで共通の報告イベントに変換してキューに積む(本文はログに出さない)
-    console.log(JSON.stringify({ slack_event: payload.event?.type ?? "unknown", retry: c.req.header("X-Slack-Retry-Num") ?? null }));
+    const retry = c.req.header("X-Slack-Retry-Num") ?? null;
+    // Slack の再送は、最初の受信をすでにキューに積んでいるので積まない(重複は処理側でも弾く)
+    const event = retry ? null : toReportEvent(payload.event);
+    if (event) await c.env.JOBS.send({ type: "report_event", event });
+    // 本文はログに出さない
+    console.log(JSON.stringify({ slack_event: payload.event?.type ?? "unknown", subtype: payload.event?.subtype ?? null, queued: !!event, retry }));
     return c.body(null, 200);
   }
 

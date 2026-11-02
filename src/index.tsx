@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import type { Env, Job } from "./env";
 import { accessGuard } from "./middleware/access-guard";
+import { processReportEvent } from "./report/process";
+import { claudeStructurer } from "./report/structure";
+import { slackClient } from "./slack/api";
 import { slack } from "./routes/slack";
 import { stores } from "./routes/stores";
 import { NotFoundPage } from "./views/StorePage";
@@ -29,11 +32,30 @@ export default {
     });
   },
 
-  async queue(batch, _env) {
+  async queue(batch, env) {
     for (const msg of batch.messages) {
-      // 現場エージェントは次の段階で実装する。今は受け取ったことだけ記録して確認応答する
-      console.log(JSON.stringify({ job: msg.body, id: msg.id }));
-      msg.ack();
+      const job = msg.body;
+      try {
+        if (job.type === "report_event") {
+          if (!env.ANTHROPIC_API_KEY || !env.SLACK_BOT_TOKEN) {
+            console.error("ANTHROPIC_API_KEY か SLACK_BOT_TOKEN が未設定のため、報告を処理できません");
+            msg.ack();
+            continue;
+          }
+          const outcome = await processReportEvent(env.DB, job.event, {
+            structure: claudeStructurer(env.ANTHROPIC_API_KEY),
+            slack: slackClient(env.SLACK_BOT_TOKEN),
+          });
+          console.log(JSON.stringify({ job: job.type, id: msg.id, outcome }));
+        } else {
+          // 現場エージェント(定時)は次の段階で実装する
+          console.log(JSON.stringify({ job: job.type, id: msg.id }));
+        }
+        msg.ack();
+      } catch (err) {
+        console.error(`ジョブの処理に失敗しました(${job.type}): ${err instanceof Error ? err.message : String(err)}`);
+        msg.retry({ delaySeconds: 10 });
+      }
     }
   },
 } satisfies ExportedHandler<Env, Job>;
