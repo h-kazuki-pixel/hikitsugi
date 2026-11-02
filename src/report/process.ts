@@ -38,6 +38,7 @@ export type ProcessOutcome =
       boardUpdated: number;
       replied: boolean;
       findingId: string | null;
+      ruleFindings: { findingId: string; ruleNo: number }[];
       question?: QuestionOutcome;
     }
   | QuestionOutcome
@@ -98,6 +99,7 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   }
   unreadable += Math.max(0, ev.images.length - MAX_IMAGES);
 
+  const rules = await activeJudgmentRules(db, store.id);
   const { result, usage } = await deps.structure({
     storeName: store.name,
     areas,
@@ -106,6 +108,7 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
     text: ev.text,
     images,
     imagesUnreadable: unreadable,
+    rules: rules.map((r) => ({ no: r.rule_no, text: r.natural_text })),
   });
   // Claude 呼び出し1回あたりの消費を実測する(本文は出さない)
   console.log(JSON.stringify({ claude: "structure", ...usage, images: images.length, categories: result.categories }));
@@ -120,6 +123,7 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
 
   if (!isReport) {
     const findingId = hasTrouble ? await recordTrouble(db, deps, newId, store, sender, ev, result, null) : null;
+    await recordRuleMatches(db, deps, newId, store, sender, ev, result, rules, images.length, null);
     const question = await askQuestion();
     return { kind: "not_report", categories: result.categories, findingId, ...(question ? { question } : {}) };
   }
@@ -184,6 +188,7 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   const boardUpdated = await markDone(db, store.id, date, result.areas, mergedInto ?? reportId);
 
   const findingId = hasTrouble ? await recordTrouble(db, deps, newId, store, sender, ev, result, reportId) : null;
+  const ruleFindings = await recordRuleMatches(db, deps, newId, store, sender, ev, result, rules, images.length, reportId);
 
   let replied = false;
   const reply = composeReply(result);
@@ -202,7 +207,17 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   }
 
   const question = await askQuestion();
-  return { kind: "report", reportId, mergedInto, areas: result.areas, boardUpdated, replied, findingId, ...(question ? { question } : {}) };
+  return {
+    kind: "report",
+    reportId,
+    mergedInto,
+    areas: result.areas,
+    boardUpdated,
+    replied,
+    findingId,
+    ruleFindings,
+    ...(question ? { question } : {}),
+  };
 }
 
 async function storeRow(db: D1Database, id: string) {
@@ -308,6 +323,111 @@ async function processClarifyAnswer(
 
   const res = await deps.slack.postMessage(ev.channelRef, result.reply, ev.threadRef).catch(() => ({ ok: false }));
   return { kind: "clarified", reportId: report.id, version, areas: result.areas, replied: res.ok };
+}
+
+type JudgmentRule = {
+  id: string;
+  rule_no: number;
+  natural_text: string;
+  origin: string;
+  question: string | null;
+  asked_at: string | null;
+  asked_by: string | null;
+  answer: string | null;
+  answered_at: string | null;
+  answered_by: string | null;
+};
+
+// 有効な「判断の基準」のルール(全店のものと、この店のもの)。由来の質問と回答も一緒に読む
+async function activeJudgmentRules(db: D1Database, storeId: string): Promise<JudgmentRule[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT r.id, r.rule_no, r.natural_text, r.origin,
+              k.question, k.asked_at, ks.display_name AS asked_by,
+              a.answer, a.answered_at, s.display_name AS answered_by
+         FROM rules r
+         LEFT JOIN knowledge k ON k.id = r.origin_knowledge_id
+         LEFT JOIN staff ks ON ks.id = k.asked_by_staff_id
+         LEFT JOIN knowledge_answers a ON a.id = r.origin_answer_id
+         LEFT JOIN staff s ON s.id = a.answered_by_staff_id
+        WHERE r.status = 'active' AND r.action = 'judgment_basis' AND (r.store_id = ? OR r.store_id IS NULL)
+        ORDER BY r.rule_no`,
+    )
+    .bind(storeId)
+    .all<JudgmentRule>();
+  return results;
+}
+
+function md(iso: string | null): string {
+  if (!iso) return "?";
+  const d = new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000);
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+}
+
+export function ruleOrigin(r: Pick<JudgmentRule, "origin" | "question" | "asked_at" | "asked_by" | "answer" | "answered_at" | "answered_by">): string {
+  if (r.origin === "knowledge") {
+    return `引き継ぎ帳: ${md(r.asked_at)} ${r.asked_by ?? "スタッフ"}さんの質問「${r.question ?? ""}」→ ${md(r.answered_at)} ${r.answered_by ?? "オーナー"}の回答「${r.answer ?? ""}」`;
+  }
+  return r.origin === "interview" ? "立ち上げ面談" : "オーナーが追加";
+}
+
+// ルール(判断の基準)に当たる様子を検出事項にし、オーナーに知らせる(運営宛てなので承認不要)。
+// 判断経路には、該当したルールの原文と由来(元の質問と回答の日付)を残す(仕様 2章「判断時の扱い」)
+async function recordRuleMatches(
+  db: D1Database,
+  deps: ProcessDeps,
+  newId: () => string,
+  store: Store,
+  sender: Person | null,
+  ev: ReportEvent,
+  result: StructureResult,
+  rules: JudgmentRule[],
+  imageCount: number,
+  reportId: string | null,
+): Promise<{ findingId: string; ruleNo: number }[]> {
+  const out: { findingId: string; ruleNo: number }[] = [];
+  const owner = result.rule_matches.length
+    ? await db
+        .prepare("SELECT slack_user_id FROM staff WHERE role = 'owner' AND status = 'active' AND slack_user_id IS NOT NULL LIMIT 1")
+        .first<{ slack_user_id: string }>()
+    : null;
+  for (const m of result.rule_matches) {
+    const rule = rules.find((r) => r.rule_no === m.rule_no);
+    if (!rule) continue;
+    const id = newId();
+    const who = sender?.display_name ?? "名簿にない人";
+    const path = [
+      { step: "投稿を受け取る", detail: `${who}さんの投稿(送信 ${ev.sentAt})` },
+      { step: "写真と本文を読む", detail: `写真${imageCount}枚と本文を、有効な判断の基準${rules.length}件と照合` },
+      { step: `ルール${rule.rule_no}に該当`, detail: `「${rule.natural_text}」` },
+      { step: "ルールの由来", detail: ruleOrigin(rule) },
+      { step: "見えたこと", detail: m.evidence },
+      { step: "対応", detail: "オーナーに知らせる(宛先が運営側なので承認なし)。スタッフには送らない" },
+    ];
+    await db
+      .prepare(
+        `INSERT INTO findings (id, store_id, detected_at, kind, target_staff_id, evidence, rule_ids, reasoning_path)
+         VALUES (?, ?, ?, 'rule_match', ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        store.id,
+        new Date().toISOString(),
+        sender?.id ?? null,
+        JSON.stringify({ report_id: reportId, message_ref: ev.messageRef, sent_at: ev.sentAt, seen: m.evidence }),
+        JSON.stringify([rule.id]),
+        JSON.stringify(path),
+      )
+      .run();
+    out.push({ findingId: id, ruleNo: rule.rule_no });
+    if (owner) {
+      const from = rule.origin === "knowledge" ? `(${md(rule.asked_at)} のスタッフの質問から生まれたルール)` : "";
+      await deps.slack
+        .postMessage(owner.slack_user_id, `【${store.name}】ルール${rule.rule_no}「${rule.natural_text}」に当たりそうな様子がありました${from}\n${m.evidence}(${who}さんの報告から)`)
+        .catch(() => undefined);
+    }
+  }
+  return out;
 }
 
 // トラブルは検出事項に回し、オーナーに即時で知らせる(運営宛てなので承認不要。設計書 5-4)

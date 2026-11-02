@@ -1,5 +1,6 @@
 import { Layout } from "./Layout";
 import type { JstDate } from "../lib/time";
+import { FindingsSection, type FindingRow } from "./FindingsSection";
 import { RulesSection, type RuleRow } from "./RulesSection";
 
 export type StoreRow = {
@@ -27,7 +28,7 @@ export function isClosedDay(closedDaysJson: string, today: JstDate): boolean {
   }
 }
 
-export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: JstDate; isDemo: boolean; rules?: RuleRow[] }) {
+export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: JstDate; isDemo: boolean; rules?: RuleRow[]; findings?: FindingRow[] }) {
   const { store, board, today, isDemo } = props;
   const closed = isClosedDay(store.closed_days, today);
   return (
@@ -64,6 +65,8 @@ export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: Js
           </ul>
         )}
       </section>
+
+      <FindingsSection findings={props.findings ?? []} />
 
       <RulesSection storeId={store.id} rules={props.rules ?? []} />
     </Layout>

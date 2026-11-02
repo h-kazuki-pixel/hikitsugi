@@ -47,6 +47,9 @@ dl.rule-src dt { color: var(--muted); } dl.rule-src dd { margin: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .actions form { margin: 0; }
 button { font: inherit; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+ol.path { margin: 6px 0 0; padding-left: 1.4em; font-size: 0.9rem; }
+ol.path li { margin: 2px 0; }
+details summary { cursor: pointer; color: var(--accent); font-size: 0.9rem; min-height: 32px; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 `;
 

@@ -9,7 +9,7 @@ import { TEXT } from "../src/knowledge/handle";
 import { searchKnowledge, similarity } from "../src/knowledge/search";
 import { normalizeAnswer } from "../src/report/clarify";
 import { processReportEvent, type ProcessDeps } from "../src/report/process";
-import { normalize, type StructureResult } from "../src/report/structure";
+import { normalize, type StructureInput, type StructureResult } from "../src/report/structure";
 import type { SlackClient } from "../src/slack/api";
 import { app } from "../src/index";
 import { demoEnv } from "./helpers";
@@ -60,11 +60,12 @@ function fakes(turns: Block[][], structured: Partial<StructureResult> = { catego
       return { ok: true, ts: t, channel: channel.startsWith("U_") ? `D_${channel.slice(2)}` : channel };
     },
     async fetchImage() {
-      return null;
+      return { base64: "aGVsbG8=", mediaType: "image/jpeg" };
     },
   };
   const model = scripted(turns);
   const drafted: { question: string; answer: string }[] = [];
+  const structureInputs: StructureInput[] = [];
   const deps: ProcessDeps = {
     slack,
     agent: model.call,
@@ -72,10 +73,20 @@ function fakes(turns: Block[][], structured: Partial<StructureResult> = { catego
       drafted.push(input);
       return { natural_text: "加湿器は机上のみ可" };
     },
-    structure: async (input) => ({ result: normalize(structured, input.areas.map((a) => a.id)), usage: { model: "t", input_tokens: 1, output_tokens: 1 } }),
+    structure: async (input) => {
+      structureInputs.push(input);
+      return {
+        result: normalize(
+          structured,
+          input.areas.map((a) => a.id),
+          input.rules.map((r) => r.no),
+        ),
+        usage: { model: "t", input_tokens: 1, output_tokens: 1 },
+      };
+    },
     resolve: async (input) => ({ result: normalizeAnswer({}, input.areas.map((a) => a.id)), usage: { model: "t", input_tokens: 1, output_tokens: 1 } }),
   };
-  return { deps, posted, requests: model.requests, drafted };
+  return { deps, posted, requests: model.requests, drafted, structureInputs };
 }
 
 describe("引き継ぎ帳の検索", () => {
@@ -255,5 +266,57 @@ describe("判断の答えはルール候補になり、承認でだけ有効に�
       fakes([]).deps,
     );
     expect(out).toMatchObject({ kind: "owner_answer", ruleCandidate: null });
+  });
+});
+
+describe("翌週の清掃報告: 承認したルールに照らして検出し、判断経路にルールと由来を出す(山場)", () => {
+  // 11/12(木)19:30 JST
+  const thu = (Date.UTC(2026, 10, 12, 10, 30) / 1000).toFixed(6);
+
+  it("写真から床置きの加湿器を拾い、ルール6の原文と元の質問を判断経路に残し、オーナーに知らせる", async () => {
+    const { deps, posted, structureInputs } = fakes([], {
+      categories: ["cleaning_report"],
+      areas: ["tenjin_floor"],
+      confidence: 0.9,
+      clarify_question: null,
+      reply: "おつかれさま。床・デスク、受け付けました。",
+      rule_matches: [
+        { rule_no: 6, evidence: "窓際の床に加湿器が置かれている" },
+        { rule_no: 99, evidence: "知らないルール" },
+        { rule_no: 1, evidence: "判断の基準ではないルール" },
+      ],
+    });
+    const ev = toReportEvent({
+      type: "message",
+      subtype: "file_share",
+      user: "U_DEMO_HARUTO",
+      channel: "C_DEMO_TENJIN",
+      channel_type: "channel",
+      ts: thu,
+      text: "床やりました",
+      files: [{ id: "F30", mimetype: "image/jpeg", thumb_1024: "https://files.example/z" }],
+    })!;
+    const out = await processReportEvent(db(), ev, deps);
+
+    // 照合に渡すのは有効な「判断の基準」のルールだけ(面談の通知ルールは渡さない)
+    expect(structureInputs[0]!.rules).toEqual([{ no: 6, text: "加湿器は机上のみ可" }]);
+    expect(out).toMatchObject({ kind: "report", ruleFindings: [{ ruleNo: 6 }] });
+
+    // スタッフには受付だけ。ルールの話はしない
+    expect(posted.find((p) => p.channel === "C_DEMO_TENJIN")!.text).toBe("おつかれさま。床・デスク、受け付けました。");
+    const dmToOwner = posted.find((p) => p.channel === "U_DEMO_OWNER")!;
+    expect(dmToOwner.text).toContain("ルール6「加湿器は机上のみ可」に当たりそうな様子がありました(11/7 のスタッフの質問から生まれたルール)");
+
+    if (out.kind !== "report") throw new Error();
+    const f = await db().prepare("SELECT kind, rule_ids, reasoning_path FROM findings WHERE id = ?").bind(out.ruleFindings[0]!.findingId).first<{ kind: string; rule_ids: string; reasoning_path: string }>();
+    expect(f!.kind).toBe("rule_match");
+    const path = JSON.parse(f!.reasoning_path) as { step: string; detail: string }[];
+    expect(path.map((p) => p.step)).toEqual(["投稿を受け取る", "写真と本文を読む", "ルール6に該当", "ルールの由来", "見えたこと", "対応"]);
+    expect(path[3]!.detail).toBe("引き継ぎ帳: 11/7 みおさんの質問「加湿器って置いていい?」→ 11/8 デモオーナーの回答「加湿器は置いていい。ただし床置きはだめ。」");
+
+    const html = await (await app.request("/stores/tenjin", {}, proxy.env)).text();
+    expect(html).toContain("ルールに該当");
+    expect(html).toContain("ルール6に該当");
+    expect(html).toContain("11/7 みおさんの質問");
   });
 });

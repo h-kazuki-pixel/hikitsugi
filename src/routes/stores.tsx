@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "../env";
 import { jstDate } from "../lib/time";
+import { FINDINGS_QUERY, type FindingRow } from "../views/FindingsSection";
 import { RULES_QUERY, type RuleRow } from "../views/RulesSection";
 import { NotFoundPage, StoreListPage, StorePage, type BoardRow, type StoreRow } from "../views/StorePage";
 
@@ -35,8 +36,11 @@ stores.get("/stores/:id", async (c) => {
     .all<BoardRow>();
 
   const { results: rules } = await c.env.DB.prepare(RULES_QUERY).bind(id).all<RuleRow>();
+  const { results: findings } = await c.env.DB.prepare(FINDINGS_QUERY).bind(id).all<FindingRow>();
 
-  return c.html(<StorePage store={store} board={board} today={today} isDemo={c.env.ENVIRONMENT === "demo"} rules={rules} />);
+  return c.html(
+    <StorePage store={store} board={board} today={today} isDemo={c.env.ENVIRONMENT === "demo"} rules={rules} findings={findings} />,
+  );
 });
 
 // ルール候補の承認・却下(承認の一押し)。有効にするのはここだけ(仕様 2章「承認なしに有効にはならない」)
