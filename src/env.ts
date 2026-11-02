@@ -1,8 +1,11 @@
 // Worker が受け取るバインディングと秘密情報。
 // 秘密情報は wrangler secret で入る(GitHub Secrets → ワークフロー)。今日の時点では未設定でもよい。
 
+import type { ReportEvent } from "./channels/report-event";
+
 export type Job =
-  | { type: "cron"; slot: "morning" | "night"; scheduledAt: string };
+  | { type: "cron"; slot: "morning" | "night"; scheduledAt: string }
+  | { type: "report_event"; event: ReportEvent };
 
 export type Env = {
   ENVIRONMENT: "demo" | "production";
