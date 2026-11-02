@@ -1,11 +1,15 @@
 import { Hono } from "hono";
 import type { Env } from "../env";
 import { jstDate } from "../lib/time";
+import { claudeRuleStructurer, type RuleStructurer } from "../rules/structure";
 import { FINDINGS_QUERY, type FindingRow } from "../views/FindingsSection";
 import { RULES_QUERY, type RuleRow } from "../views/RulesSection";
 import { NotFoundPage, StoreListPage, StorePage, type BoardRow, type StoreRow } from "../views/StorePage";
 
 export const stores = new Hono<{ Bindings: Env }>();
+
+// ルールの構造化に使う Claude(テストでは差し替える)
+export const ruleDeps: { structurer: (apiKey: string) => RuleStructurer } = { structurer: claudeRuleStructurer };
 
 stores.get("/", async (c) => {
   const { results } = await c.env.DB.prepare("SELECT id, name, cleaning_type FROM stores ORDER BY name").all<
@@ -41,6 +45,38 @@ stores.get("/stores/:id", async (c) => {
   return c.html(
     <StorePage store={store} board={board} today={today} isDemo={c.env.ENVIRONMENT === "demo"} rules={rules} findings={findings} />,
   );
+});
+
+// オーナーが自然文でルールを足す → Claude が構造化 → 候補として出す(承認で有効)
+stores.post("/stores/:id/rules", async (c) => {
+  const id = c.req.param("id");
+  if (!/^[a-z0-9_-]{1,64}$/.test(id)) return c.html(<NotFoundPage />, 404);
+  const store = await c.env.DB.prepare("SELECT id, name FROM stores WHERE id = ?").bind(id).first<{ id: string; name: string }>();
+  if (!store) return c.html(<NotFoundPage />, 404);
+  const form = await c.req.parseBody();
+  const text = typeof form.text === "string" ? form.text.trim().slice(0, 200) : "";
+  if (!text || !c.env.ANTHROPIC_API_KEY) return c.redirect(`/stores/${id}#rules-title`, 303);
+
+  const r = await ruleDeps.structurer(c.env.ANTHROPIC_API_KEY)({ storeName: store.name, text });
+  const allStores = r.target.scope === "all_stores";
+  await c.env.DB.prepare(
+    `INSERT INTO rules (id, rule_no, store_id, natural_text, condition, target, action, recipient, urgency, origin, status, reading, unclear)
+     VALUES (?, (SELECT coalesce(max(rule_no), 0) + 1 FROM rules), ?, ?, ?, ?, ?, ?, ?, 'owner_ui', 'candidate', ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      allStores ? null : id,
+      text,
+      JSON.stringify(r.condition),
+      JSON.stringify(r.target),
+      r.action,
+      r.recipient,
+      r.urgency,
+      r.reading || null,
+      r.unclear,
+    )
+    .run();
+  return c.redirect(`/stores/${id}#candidates-title`, 303);
 });
 
 // ルール候補の承認・却下(承認の一押し)。有効にするのはここだけ(仕様 2章「承認なしに有効にはならない」)

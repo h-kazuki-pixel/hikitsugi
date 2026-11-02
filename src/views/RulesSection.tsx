@@ -1,5 +1,6 @@
 // 店舗ページのルール欄: ルール候補(承認の一押し)と、有効なルールの一覧(由来つき)
 // 面談(seed)で入れたルールと、引き継ぎ帳の「判断」の答えから承認で生まれたルールが同じ一覧に並ぶ(設計書 5-3)
+import { ACTION_LABEL, RECIPIENT_LABEL, URGENCY_LABEL } from "../rules/structure";
 
 export type RuleRow = {
   id: string;
@@ -14,6 +15,12 @@ export type RuleRow = {
   answer: string | null;
   answered_at: string | null;
   answered_by: string | null;
+  action: keyof typeof ACTION_LABEL;
+  recipient: keyof typeof RECIPIENT_LABEL | null;
+  urgency: keyof typeof URGENCY_LABEL;
+  condition: string;
+  reading: string | null;
+  unclear: string | null;
 };
 
 function md(iso: string | null): string {
@@ -39,20 +46,42 @@ export function RulesSection(props: { storeId: string; rules: RuleRow[] }) {
           <ul class="rules">
             {candidates.map((r) => (
               <li>
-                <p class="rule-q">この答えをルールにしますか</p>
+                <p class="rule-q">{r.origin === "knowledge" ? "この答えをルールにしますか" : "この読み取りで有効にしますか"}</p>
                 <p class="rule-text">
                   ルール{r.rule_no}「{r.natural_text}」
                 </p>
-                <dl class="rule-src">
-                  <dt>質問</dt>
-                  <dd>
-                    {r.question}({md(r.asked_at)} {r.asked_by}さん)
-                  </dd>
-                  <dt>答え</dt>
-                  <dd>
-                    {r.answer}({md(r.answered_at)} {r.answered_by})
-                  </dd>
-                </dl>
+                {r.origin === "knowledge" ? (
+                  <dl class="rule-src">
+                    <dt>質問</dt>
+                    <dd>
+                      {r.question}({md(r.asked_at)} {r.asked_by}さん)
+                    </dd>
+                    <dt>答え</dt>
+                    <dd>
+                      {r.answer}({md(r.answered_at)} {r.answered_by})
+                    </dd>
+                  </dl>
+                ) : (
+                  <dl class="rule-src">
+                    <dt>読み取り</dt>
+                    <dd>{r.reading}</dd>
+                    <dt>動作</dt>
+                    <dd>
+                      {ACTION_LABEL[r.action]}
+                      {r.recipient ? ` / 宛先: ${RECIPIENT_LABEL[r.recipient]}` : ""} / {URGENCY_LABEL[r.urgency]}
+                    </dd>
+                    <dt>条件</dt>
+                    <dd>
+                      <code>{r.condition}</code>
+                    </dd>
+                    {r.unclear && (
+                      <>
+                        <dt>未確定</dt>
+                        <dd>{r.unclear}</dd>
+                      </>
+                    )}
+                  </dl>
+                )}
                 <div class="actions">
                   <form method="post" action={`/rules/${r.id}/approve`}>
                     <input type="hidden" name="store" value={props.storeId} />
@@ -86,6 +115,11 @@ export function RulesSection(props: { storeId: string; rules: RuleRow[] }) {
             ))}
           </ul>
         )}
+        <form method="post" action={`/stores/${props.storeId}/rules`} class="add-rule">
+          <label for="rule-text">ルールを足す(ふだんの言葉で)</label>
+          <textarea id="rule-text" name="text" rows={2} maxlength={200} required placeholder="例: トイレの報告がない日が2日続いたら、副担当に知らせて" />
+          <button type="submit">読み取ってもらう</button>
+        </form>
       </section>
     </>
   );
@@ -93,6 +127,7 @@ export function RulesSection(props: { storeId: string; rules: RuleRow[] }) {
 
 export const RULES_QUERY = `
   SELECT r.id, r.rule_no, r.natural_text, r.status, r.origin, r.store_id,
+         r.action, r.recipient, r.urgency, r.condition, r.reading, r.unclear,
          k.question, k.asked_at, ks.display_name AS asked_by,
          a.answer, a.answered_at, s.display_name AS answered_by
     FROM rules r

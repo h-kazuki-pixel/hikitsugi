@@ -50,6 +50,10 @@ button { font: inherit; min-height: 44px; padding: 0 14px; border-radius: 10px; 
 ol.path { margin: 6px 0 0; padding-left: 1.4em; font-size: 0.9rem; }
 ol.path li { margin: 2px 0; }
 details summary { cursor: pointer; color: var(--accent); font-size: 0.9rem; min-height: 32px; }
+form.add-rule { display: grid; gap: 6px; margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+form.add-rule label { font-size: 0.9rem; color: var(--muted); }
+textarea { font: inherit; width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+code { font-size: 0.8rem; word-break: break-all; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 `;
 
