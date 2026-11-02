@@ -8,8 +8,9 @@ Built with Claude: Japan 2026 / テーマ1「あなたにしかない深さを�
 
 ## デモ
 
-- **demo(架空の店舗・公開)**: 準備中。main へのマージで初回デプロイが通ったら、ここに URL を書く
-  - 例: `https://hikitsugi-demo.<workers.dev のサブドメイン>.workers.dev/stores/tenjin`
+- **demo(架空の店舗・公開)**: https://hikitsugi-demo.h-kazuki.workers.dev/stores/tenjin
+  - 店舗の一覧: https://hikitsugi-demo.h-kazuki.workers.dev/
+  - いま見られるのは店舗名と今日のボード(空)まで。中核は「今の状態」の表のとおり実装中
 - 店舗・スタッフ・質問はすべて架空(「サンプル自習室 天神店 / 薬院店」)。実店舗のデータは非公開の production 環境にだけある
 
 ## 数字(自分の店の、今の不便)
