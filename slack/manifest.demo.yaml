@@ -7,17 +7,13 @@
 #   files:read        写真を受け取る(file_shared、files.info → url_private_download)
 #   chat:write        受付・聞き返し・回答をスレッドに返す、承認後の声かけを DM で送る
 #   im:write          承認後の声かけのために DM を開く(conversations.open)
+# long_description は Slack が175文字以上を求めるため置かない(短いとマニフェストがエラーになる)
 # 店舗チャンネルが非公開チャンネルの場合は groups:history と message.groups を足す(デモは公開チャンネルで作る)
 
 display_information:
   name: hikitsugi-demo
   description: 無人自習室の清掃報告を受け付け、現場の知識を引き継ぐ(デモ用・架空の店舗)
   background_color: "#2f6f5e"
-  long_description: >-
-    サンプル自習室(天神店・薬院店)のデモ用アプリです。店舗チャンネルに送られた清掃報告や写真を受け付け、
-    スレッドに返事をします。スタッフへの声かけは、オーナーが承認したものだけを DM で送ります。
-    ボットへの DM で聞かれた質問には、過去に人が答えた内容から出典つきで答えます。
-    店舗・スタッフ・質問はすべて架空のデータです。
 
 features:
   app_home:
