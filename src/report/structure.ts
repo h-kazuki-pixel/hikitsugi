@@ -66,12 +66,13 @@ function tool(areaIds: string[]): Anthropic.Tool {
         confidence: { type: "number", minimum: 0, maximum: 1, description: "構造化の確信度" },
         clarify_question: {
           type: ["string", "null"],
-          description: "確信が持てない点があるときだけ、スタッフに1回だけ聞く短い質問(例: 「トイレットペーパーが残り1つに見えますが、合ってますか?」)。なければ null",
+          description:
+            "報告された内容に確信が持てない点があるときだけ、その1点を確かめる質問を1文で(例: 「トイレットペーパーが残り1つに見えますが、合ってますか?」)。疑問符は1つだけ。報告にない箇所や作業を尋ねない(「〜もやっていたら教えて」は不可)。迷う点が複数あっても、記録に一番効く1点だけにする。なければ null",
         },
         reply: {
           type: "string",
           description:
-            "清掃報告のときだけ、スレッドに返す受付の文。ねぎらい + 受け付けた箇所 + (あれば)聞き返し。1〜2文。責めない。清掃報告でなければ空文字",
+            "清掃報告のときだけ、スレッドに返す受付の文。ねぎらい + 受け付けた箇所を1〜2文。質問は入れない(聞き返しは clarify_question に書くと、システムが後ろにつなげて送る)。責めない。清掃報告でなければ空文字",
         },
       },
       required: ["categories", "areas", "supplies_out", "trouble", "memo", "confidence", "clarify_question", "reply"],
@@ -91,8 +92,9 @@ function system(input: StructureInput): string {
     "",
     "決まりごと:",
     "- 写真は清掃後の様子として見る。写っている場所から清掃箇所を判定する。写真から分かる備品の残量・汚れ・ゴミの放置も拾う",
-    "- 読み取れないことを推測で埋めない。迷ったら confidence を下げ、聞くべきことが1つあれば clarify_question にする",
-    "- 受付の文はスタッフへの返事。ねぎらいを先に、短く、責めない。オーナーの口調に寄せる",
+    "- 読み取れないことを推測で埋めない。迷ったら confidence を下げる",
+    "- 聞き返しは1回、1つだけ。報告された内容のうち確かめないと記録が誤る1点だけを clarify_question に書く。報告にない箇所や作業を尋ねない。確かめることがなければ null",
+    "- 受付の文(reply)はスタッフへの返事。ねぎらいを先に、短く、責めない。オーナーの口調に寄せる。reply には質問を書かない",
     input.toneSample ? `- オーナーの口調の例: 「${input.toneSample}」` : "",
   ]
     .filter((l) => l !== "")
@@ -135,6 +137,31 @@ export function claudeStructurer(apiKey: string): Structurer {
   };
 }
 
+// 聞き返しは1つだけ(仕様 4章「1回だけ聞き返す」)。モデルが2つ書いても、最初の問い1つに切る
+export function singleQuestion(q: string | null | undefined): string | null {
+  const t = (q ?? "").trim();
+  if (!t) return null;
+  const m = t.match(/^[^?？]*[?？]/);
+  return (m ? m[0] : t).trim() || null;
+}
+
+// 受付の文から問いと「教えて」の文を落とす(スタッフに尋ねるのは clarify_question の1つだけにするため)
+function withoutQuestions(reply: string): string {
+  const sentences = reply.match(/[^。！!?？\n]+[。！!?？]?/g) ?? [];
+  return sentences
+    .filter((s) => !/[?？]$/.test(s.trim()) && !/教えて/.test(s))
+    .join("")
+    .trim();
+}
+
+// スレッドに返す文: 受付 + (あれば)聞き返し1つ
+export function composeReply(result: Pick<StructureResult, "reply" | "clarify_question">): string {
+  const ack = result.reply;
+  const q = result.clarify_question;
+  if (!ack) return "";
+  return q ? `${ack}\n${q}` : ack;
+}
+
 // モデルの出力を DB に入れられる形に整える(知らない箇所 ID や範囲外の値は落とす)
 export function normalize(raw: Partial<StructureResult>, areaIds: string[]): StructureResult {
   const known = new Set(areaIds);
@@ -147,7 +174,7 @@ export function normalize(raw: Partial<StructureResult>, areaIds: string[]): Str
     trouble: raw.trouble?.trim() || null,
     memo: raw.memo?.trim() || null,
     confidence: conf,
-    clarify_question: raw.clarify_question?.trim() || null,
-    reply: (raw.reply ?? "").trim(),
+    clarify_question: singleQuestion(raw.clarify_question),
+    reply: withoutQuestions((raw.reply ?? "").trim()),
   };
 }

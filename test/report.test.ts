@@ -3,7 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { toReportEvent, type SlackMessageEvent } from "../src/channels/slack";
 import { processReportEvent, type ProcessDeps } from "../src/report/process";
-import { normalize, type StructureInput, type StructureResult } from "../src/report/structure";
+import { composeReply, normalize, singleQuestion, type StructureInput, type StructureResult } from "../src/report/structure";
 import type { SlackClient } from "../src/slack/api";
 import { demoEnv } from "./helpers";
 
@@ -81,6 +81,33 @@ describe("Slack アダプタ", () => {
   });
 });
 
+describe("聞き返しは1つだけ(仕様 4章)", () => {
+  it("11/3 の実機で起きた2つの問いを、最初の1つに切る", () => {
+    const r = normalize(
+      {
+        categories: ["cleaning_report"],
+        areas: ["tenjin_trash"],
+        confidence: 0.6,
+        clarify_question: "ゴミ置き場で合ってますか?ドリンク周りもやっていたら教えてください。",
+        reply: "おつかれさまです!ゴミ置き場、受け付けました。ゴミ置き場で合ってますか?ドリンク周りもやっていたら教えて",
+      },
+      ["tenjin_trash"],
+    );
+    expect(r.clarify_question).toBe("ゴミ置き場で合ってますか?");
+    expect(r.reply).toBe("おつかれさまです!ゴミ置き場、受け付けました。");
+    const text = composeReply(r);
+    expect(text).toBe("おつかれさまです!ゴミ置き場、受け付けました。\nゴミ置き場で合ってますか?");
+    expect(text.match(/[?？]/g)).toHaveLength(1);
+  });
+
+  it("全角の疑問符も1つで切り、問いがなければ受付だけ返す", () => {
+    expect(singleQuestion("2階は階段のことですか？ 3階もですか？")).toBe("2階は階段のことですか？");
+    expect(singleQuestion("  ")).toBeNull();
+    expect(composeReply({ reply: "おつかれさま。受け付けました。", clarify_question: null })).toBe("おつかれさま。受け付けました。");
+    expect(composeReply({ reply: "", clarify_question: "合ってますか?" })).toBe("");
+  });
+});
+
 describe("報告の処理", () => {
   it("清掃報告: 原本と版1を積み、ボードを完了にし、スレッドに受付を返す", async () => {
     const { deps, posted, inputs } = fakes(REPORT);
@@ -89,7 +116,9 @@ describe("報告の処理", () => {
 
     expect(out).toMatchObject({ kind: "report", mergedInto: null, areas: ["tenjin_toilet", "tenjin_trash"], boardUpdated: 2, replied: true });
     expect(inputs[0]).toMatchObject({ storeName: "サンプル自習室 天神店", senderName: "あおい", images: [{ mediaType: "image/jpeg" }] });
-    expect(posted).toEqual([{ channel: "C_DEMO_TENJIN", text: REPORT.reply, thread: ts(0) }]);
+    expect(posted).toEqual([
+      { channel: "C_DEMO_TENJIN", text: "おつかれさま。トイレとゴミ、受け付けました。\nトイレットペーパーが残り1つに見えますが、合ってますか?", thread: ts(0) },
+    ]);
 
     if (out.kind !== "report") throw new Error();
     const cur = await db().prepare("SELECT sender_staff_id, version, areas, basis, image_ids FROM reports_current WHERE id = ?").bind(out.reportId).first();

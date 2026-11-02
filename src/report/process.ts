@@ -12,7 +12,7 @@ import type { ReportEvent } from "../channels/report-event";
 import { jstDate } from "../lib/time";
 import type { SlackClient } from "../slack/api";
 import { ensureBoard, markDone } from "./board";
-import type { Structurer, StructureResult } from "./structure";
+import { composeReply, type Structurer, type StructureResult } from "./structure";
 
 export type ProcessDeps = {
   structure: Structurer;
@@ -160,8 +160,9 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   const findingId = hasTrouble ? await recordTrouble(db, deps, newId, store, sender, ev, result, reportId) : null;
 
   let replied = false;
-  if (result.reply) {
-    const res = await deps.slack.postMessage(ev.channelRef, result.reply, ev.threadRef).catch(() => ({ ok: false }));
+  const reply = composeReply(result);
+  if (reply) {
+    const res = await deps.slack.postMessage(ev.channelRef, reply, ev.threadRef).catch(() => ({ ok: false }));
     replied = res.ok;
   }
 
