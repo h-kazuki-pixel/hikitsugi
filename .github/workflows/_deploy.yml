@@ -64,6 +64,11 @@ jobs:
           echo "CLOUDFLARE_API_TOKEN=$token" >> "$GITHUB_ENV"
           echo "CLOUDFLARE_ACCOUNT_ID=$account" >> "$GITHUB_ENV"
 
+      # トークンとアカウントで、デプロイに要る操作(D1・Workers・Queues)ができるかを先に確かめる。
+      # できなければ、何を直せばよいかを日本語で出して止める(トークンやアカウント名はログに出さない)
+      - name: Cloudflare の権限を確かめる
+        run: scripts/ci/cf-diagnose.sh "$TARGET_ENV"
+
       - name: D1 マイグレーション
         run: npx wrangler d1 migrations apply DB --remote --env "$TARGET_ENV"
 
