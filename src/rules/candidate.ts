@@ -16,12 +16,12 @@ export function claudeRuleDrafter(apiKey: string): RuleDrafter {
   return async (input) => {
     const res = await client.messages.create({
       model: STRUCTURE_MODEL,
-      max_tokens: 256,
+      max_tokens: 512,
       system: [
         "無人自習室のオーナーが、スタッフの質問に答えました。この答えを、以後の判断の基準にするルールの文面に下書きしてください。",
         "文章で答えずに、必ず record_rule を1回だけ呼んでください。",
         "- 文面はオーナーの答えの趣旨だけを、短い自然文(30字以内)にする。答えにない条件や例外を足さない",
-        "- 例: 質問「加湿器って置いていい?」答え「置いていい。ただし床置きはだめ」→「加湿器は机上のみ可」",
+        "- 例: 質問「席に財布が置きっぱなしだけど、どうすればいい?」答え「貴重品は7番のロッカー、ほかは忘れ物BOXへ。場所と時間と写真を報告して」→「忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX。場所・時間・写真を報告」",
       ].join("\n"),
       tools: [
         {

@@ -66,7 +66,7 @@ export function claudeRuleStructurer(apiKey: string): RuleStructurer {
   return async (input) => {
     const res = await client.messages.create({
       model: STRUCTURE_MODEL,
-      max_tokens: 512,
+      max_tokens: 1024,
       system: [
         `無人自習室「${input.storeName}」のオーナーが、運営のルールを自然文で書きました。record_rule で構造に変換してください。`,
         "文章で答えずに、必ず record_rule を1回だけ呼んでください。",

@@ -87,6 +87,10 @@ export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: Js
       <RulesSection storeId={store.id} rules={props.rules ?? []} />
 
       {isDemo && <DemoPanel storeId={store.id} staff={props.demoStaff ?? []} />}
+
+      <p class="meta" style="margin-top:12px">
+        <a href="/usage">Claude の消費</a>
+      </p>
     </Layout>
   );
 }

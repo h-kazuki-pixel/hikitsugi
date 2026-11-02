@@ -266,7 +266,7 @@ export async function runNightCheck(db: D1Database, ctx: Ctx, deps: { call: Mode
     .join("\n");
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const res = await deps.call({ model: AGENT_MODEL, max_tokens: 1500, system, tools: TOOLS, tool_choice: { type: "auto" }, messages });
+    const res = await deps.call({ model: AGENT_MODEL, max_tokens: 2048, system, tools: TOOLS, tool_choice: { type: "auto" }, messages });
     result.usage.model = res.model;
     result.usage.input_tokens += res.usage.input_tokens;
     result.usage.output_tokens += res.usage.output_tokens;

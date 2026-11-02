@@ -385,8 +385,8 @@ describe("汚れが残っている写真は完了にしない(11/3 実機: 紙�
 describe("ルールの照合の整え方", () => {
   it("渡した番号だけを残し、反しているのに根拠がないものは落とす", async () => {
     const { normalizeRuleCheck } = await import("../src/report/rulecheck");
-    expect(normalizeRuleCheck([{ rule_no: 6, violated: true, evidence: "床に加湿器" }, { rule_no: 6, violated: true, evidence: "" }, { rule_no: 9, violated: true, evidence: "x" }, { rule_no: 7, violated: false, evidence: "" }], [6, 7])).toEqual([
-      { rule_no: 6, violated: true, evidence: "床に加湿器" },
+    expect(normalizeRuleCheck([{ rule_no: 6, violated: true, evidence: "席に財布" }, { rule_no: 6, violated: true, evidence: "" }, { rule_no: 9, violated: true, evidence: "x" }, { rule_no: 7, violated: false, evidence: "" }], [6, 7])).toEqual([
+      { rule_no: 6, violated: true, evidence: "席に財布" },
       { rule_no: 7, violated: false, evidence: "" },
     ]);
   });

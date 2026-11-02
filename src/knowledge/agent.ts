@@ -93,7 +93,7 @@ function system(storeName: string): string {
     "",
     "決まりごと:",
     "- 引き継ぎ帳にあるのは、人が実際に答えた言葉だけです。あなたが自分の知識で答えを作ってはいけません",
-    "- 回答が質問にそのまま当たるときだけ answer_from_source。似ているが別の物・別の場面の話なら当たらないとみなす(例: 暖房の温度の答えは、加湿器を置いてよいかの答えにならない)",
+    "- 回答が質問にそのまま当たるときだけ answer_from_source。似ているが別の物・別の場面の話なら当たらないとみなす(例: 掃除機の置き場所の答えは、忘れ物をどこに保管するかの答えにならない)",
     "- 迷ったら ask_owner。人に回すのは失敗ではありません。出典のない答えを返すほうが悪い",
     "- 検索は言い換えて2〜3回まで試してよい",
   ].join("\n");
@@ -137,7 +137,7 @@ export async function runHandoffAgent(
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const res = await call({
       model: AGENT_MODEL,
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: system(input.storeName),
       tools: TOOLS,
       tool_choice: { type: "auto" },
