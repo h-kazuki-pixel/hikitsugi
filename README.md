@@ -183,7 +183,9 @@ http://localhost:8787/stores/tenjin を開く。テストは `npm test`、型検
 
 - フック: コミット前の実データ検査(下記)。実店舗を運営する本人が同じ手で公開リポジトリに書くので、実データの混入を人の注意ではなく仕組みで止める
 - サブエージェント: [.claude/agents/judge-reviewer.md](.claude/agents/judge-reviewer.md)。ハッカソンの審査員役として、審査基準(インパクト30 / デモ25 / Claudeの活用25 / 深さと実行20)でリポジトリと README を読み、弱点を指摘する。読み取り専用(Read / Grep / Glob のみ)。区切りごとに呼んで見直す。初回の見直しで、フックが日本語のパスで黙って素通りする不具合、報告の「追記のみ」が聞き返しと両立しない設計、production が無防備になる設定が見つかり、直した
-- Skills: 場面の seed づくりと過去の質問の流し直し(必要になった時点で `.claude/skills/` に作る)
+- Skills: [.claude/skills/replay-questions](.claude/skills/replay-questions/SKILL.md)(過去の質問の流し直し: 実データの置き場所、CSV の形式、数字の読み方と転記の仕方)と [.claude/skills/demo-scene](.claude/skills/demo-scene/SKILL.md)(デモの4場面を架空データで再現する手順と、状態の戻し方)。どちらも「手順を毎回書き直さず、同じ品質で繰り返す」ための置き場
+- 役割ごとのモデル: 報告の構造化・写真判定・聞き返しの確定・ルールの文面は `claude-sonnet-5-5`(1投稿ごとに呼ぶので速さと費用。出力はツールの入力として受け取り、コードが検算する)。引き継ぎ帳と夜の突き合わせは `claude-opus-5-5`(ツールを何度も呼んで判断する。呼んだツールがそのまま判断経路になる)。どちらも Agent SDK は使わず、Anthropic SDK のツール使用ループを Worker の中に書いた
+- Claude の判断をそのまま通さない: 聞き返しは最初の1問に切る、引き継ぎ帳の返事は回答の原文と出典をコードが並べる、夜の突き合わせの draft_nudge は解錠時刻と送信時刻で検算して断る。Claude が揺れても約束が崩れないようにする
 
 ## コミット前の実データ検査(Claude Code フック)
 
