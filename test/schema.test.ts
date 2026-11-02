@@ -118,9 +118,9 @@ describe("報告: 原本は追記のみ、構造化は版を積む", () => {
 describe("引き継ぎ帳: 回答は追記のみ、出典は必須", () => {
   it("回答がないのに回答済みにはできない", async () => {
     await expect(
-      run("INSERT INTO knowledge (id, question, asked_at, status) VALUES ('k_x', '加湿器って置いていい?', '2026-11-07T03:00:00Z', 'answered')"),
+      run("INSERT INTO knowledge (id, question, asked_at, status) VALUES ('k_x', '席に財布が置きっぱなしだけど、どうすればいい?', '2026-11-07T03:00:00Z', 'answered')"),
     ).rejects.toThrow(/出典/);
-    await run("INSERT INTO knowledge (id, question, asked_at) VALUES ('k_humid', '加湿器って置いていい?', '2026-11-07T03:00:00Z')");
+    await run("INSERT INTO knowledge (id, question, asked_at) VALUES ('k_humid', '席に財布が置きっぱなしだけど、どうすればいい?', '2026-11-07T03:00:00Z')");
     await expect(run("UPDATE knowledge SET status = 'answered' WHERE id = 'k_humid'")).rejects.toThrow(/出典/);
   });
 
@@ -150,10 +150,10 @@ describe("引き継ぎ帳: 回答は追記のみ、出典は必須", () => {
 
   it("引き継ぎ帳から生まれるルールは、元の質問と回答を指す", async () => {
     await expect(
-      run("INSERT INTO rules (id, rule_no, natural_text, action, origin, status) VALUES ('rule_x', 99, '加湿器は机上のみ可', 'judgment_basis', 'knowledge', 'candidate')"),
+      run("INSERT INTO rules (id, rule_no, natural_text, action, origin, status) VALUES ('rule_x', 99, '忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX', 'judgment_basis', 'knowledge', 'candidate')"),
     ).rejects.toThrow();
     await run(
-      "INSERT INTO rules (id, rule_no, natural_text, action, origin, origin_knowledge_id, origin_answer_id, status) VALUES ('rule_6', 106, '加湿器は机上のみ可', 'judgment_basis', 'knowledge', 'k_humid', 'ka_h1', 'candidate')",
+      "INSERT INTO rules (id, rule_no, natural_text, action, origin, origin_knowledge_id, origin_answer_id, status) VALUES ('rule_6', 106, '忘れ物は貴重品なら16番ロッカー、ほかは忘れ物BOX', 'judgment_basis', 'knowledge', 'k_humid', 'ka_h1', 'candidate')",
     );
   });
 });

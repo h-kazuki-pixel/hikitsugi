@@ -17,6 +17,7 @@ import type { Resolver } from "./clarify";
 import type { ModelCall } from "../knowledge/agent";
 import type { RuleDrafter } from "../rules/candidate";
 import { md, ruleOrigin } from "../rules/origin";
+import { sourceLabel } from "../knowledge/search";
 import { handleOwnerAnswer, handleQuestion, lookupPerson, type QuestionOutcome } from "../knowledge/handle";
 import { composeReply, type Structurer, type StructureResult } from "./structure";
 import type { RuleChecker } from "./rulecheck";
@@ -233,7 +234,13 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
     const what = names ? `${names}、` : "";
     result.reply = mergedInto ? `${what}受け付けました。さっきの報告にまとめておきますね。` : `おつかれさま。${what}受け付けました。`;
   }
-  const reply = composeReply(result, (id) => areas.find((a) => a.id === id)?.name ?? id);
+  // ルール(判断の基準)に当たる物が写っていたら、報告のスレッドで、元になったオーナーの回答をそのまま返す
+  // (11/3 橋本: 忘れ物は見つけた本人がその場でしまえる。文はコードが組み、新しく作らない)。
+  // 汚れの「拾ってもらえますか」が先。返事に添えるのは1つだけ
+  const reminder = result.leftover.length ? null : ruleReminder(result, rules);
+  const reply = reminder
+    ? `${result.reply}\n${reminder}`
+    : composeReply(result, (id) => areas.find((a) => a.id === id)?.name ?? id);
   if (reply) {
     const res: { ok: boolean; ts?: string } = await deps.slack
       .postMessage(ev.channelRef, reply, ev.threadRef)
@@ -512,6 +519,18 @@ type JudgmentRule = {
   answered_by: string | null;
 };
 
+// ルールに当たる物が写っていたときに、スタッフへの受付に添える一文(引き継ぎ帳から生まれたルールだけ)。
+// 中身は元になったオーナーの回答の原文と出典。Claude には書かせない
+export function ruleReminder(result: Pick<StructureResult, "rule_matches">, rules: JudgmentRule[]): string | null {
+  for (const m of result.rule_matches) {
+    const r = rules.find((x) => x.rule_no === m.rule_no);
+    if (!r || r.origin !== "knowledge" || !r.answer || !r.answered_at) continue;
+    const seen = m.evidence.replace(/[。.]+$/, "");
+    return `${seen}ようです。前にオーナーが答えたやり方です:「${r.answer}」${sourceLabel(r.answered_by ?? "オーナー", r.answered_at)}`;
+  }
+  return null;
+}
+
 // 有効な「判断の基準」のルール(全店のものと、この店のもの)。由来の質問と回答も一緒に読む
 async function activeJudgmentRules(db: D1Database, storeId: string): Promise<JudgmentRule[]> {
   const { results } = await db
@@ -563,7 +582,13 @@ async function recordRuleMatches(
       { step: `ルール${rule.rule_no}に該当`, detail: `「${rule.natural_text}」` },
       { step: "ルールの由来", detail: ruleOrigin(rule) },
       { step: "見えたこと", detail: m.evidence },
-      { step: "対応", detail: "オーナーに知らせる(宛先が運営側なので承認なし)。スタッフには送らない" },
+      {
+        step: "対応",
+        detail:
+          rule.origin === "knowledge"
+            ? "報告のスレッドで、元になったオーナーの回答をそのまま返す。オーナーにも知らせる(宛先が運営側なので承認なし)"
+            : "オーナーに知らせる(宛先が運営側なので承認なし)",
+      },
     ];
     await db
       .prepare(

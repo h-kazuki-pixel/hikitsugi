@@ -93,7 +93,7 @@ function tool(areaIds: string[], ruleNos: number[]): Anthropic.Tool {
         rule_matches: {
           type: "array",
           description:
-            "判断の基準のルールに反している様子が写真や本文から確かに分かるときだけ入れる(例: 机上のみ可のルールがあり、床に置かれた加湿器が写っている)。見えないこと・推測は入れない。なければ空",
+            "判断の基準のルールに反している様子が写真や本文から確かに分かるときだけ入れる(例: 貴重品の忘れ物はロッカーに保管するルールがあり、席にスマートフォンが残っている)。見えないこと・推測は入れない。なければ空",
           items: {
             type: "object",
             properties: {
