@@ -327,6 +327,7 @@ describe("翌週の清掃報告: 承認したルールに照らして検出し�
     expect(f!.kind).toBe("rule_match");
     const path = JSON.parse(f!.reasoning_path) as { step: string; detail: string }[];
     expect(path.map((p) => p.step)).toEqual(["投稿を受け取る", "写真と本文を読む", "ルール6に該当", "ルールの由来", "見えたこと", "対応"]);
+    expect(path[0]!.detail).toBe("はるとさんの投稿(送信 11/12 19:30)");
     expect(path[3]!.detail).toBe("引き継ぎ帳: 11/7 みおさんの質問「加湿器って置いていい?」→ 11/8 デモオーナーの回答「加湿器は置いていい。ただし床置きはだめ。」");
 
     const html = await (await app.request("/stores/tenjin", {}, proxy.env)).text();
