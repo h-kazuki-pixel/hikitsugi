@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,6 +108,20 @@ test("フック: コミットメッセージ(-m / ヒアドキュメント / -F)
   // 通常のメッセージ(Co-Authored-By の noreply を含む)は通す
   const ok = 'git commit -m "機能を追加\n\nCo-Authored-By: Claude <noreply@anthropic.com>"';
   assert.equal(runHook(dir, ok).status, 0);
+});
+
+test("フック: スクリプトのパスに日本語や空白があっても検査が走る", () => {
+  const { dir, g } = tempRepo();
+  const odd = join(mkdtempSync(join(tmpdir(), "引き継ぎ ")), "check-commit.mjs");
+  copyFileSync(SCRIPT, odd);
+  writeFileSync(join(dir, "p.txt"), j("sk-", "ant-", "pathtest00000000\n"));
+  g("add", "p.txt");
+  const r = spawnSync("node", [odd, "--hook"], {
+    cwd: dir,
+    input: JSON.stringify({ tool_name: "Bash", tool_input: { command: 'git commit -m "p"' }, cwd: dir }),
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 2);
 });
 
 test("フック: private/denylist.txt の語で止め、denylist 自体は検査しない", () => {

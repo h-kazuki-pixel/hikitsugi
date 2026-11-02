@@ -15,6 +15,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // ---- 検査する型 ---------------------------------------------------------
 
@@ -264,4 +265,5 @@ function main() {
   process.exit(2);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+// パスに日本語や空白があっても一致するよう、URL に変換して比べる(素の文字列で比べると検査が黙って走らない)
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
