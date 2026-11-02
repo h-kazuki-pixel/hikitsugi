@@ -6,7 +6,9 @@
 // asOf を渡すと、その時刻までに人が答えた内容だけを返す(過去の質問の流し直しで使う)。
 
 export type KnowledgeHit = {
-  id: string;
+  id: string; // 知識は knowledge.id、ルールは "rule:" + rules.id
+  source_type: "knowledge" | "rule";
+  rule_no?: number;
   question: string;
   kind: "place" | "procedure" | "judgment" | null;
   status: "answered" | "pending_owner";
@@ -56,12 +58,43 @@ export async function searchKnowledge(
     .bind(asOf, storeId, asOf)
     .all<Omit<KnowledgeHit, "score" | "status">>();
 
-  return results
-    .map((r) => ({
+  // 有効なルールも知識と同じ扱いで候補に出す(仕様 2章「ルールは出典つきの判断として返せる」)。
+  // 問いはルールの元になった質問(引き継ぎ帳由来)か、ルールの原文
+  const { results: rules } = await db
+    .prepare(
+      `SELECT r.id, r.rule_no, r.natural_text, r.origin, r.activated_at,
+              k.question, s.display_name AS answered_by, a.answered_at
+         FROM rules r
+         LEFT JOIN knowledge k ON k.id = r.origin_knowledge_id
+         LEFT JOIN knowledge_answers a ON a.id = r.origin_answer_id
+         LEFT JOIN staff s ON s.id = a.answered_by_staff_id
+        WHERE r.status = 'active' AND (r.store_id = ? OR r.store_id IS NULL) AND coalesce(r.activated_at, '') <= ?`,
+    )
+    .bind(storeId, asOf)
+    .all<{ id: string; rule_no: number; natural_text: string; origin: string; activated_at: string | null; question: string | null; answered_by: string | null; answered_at: string | null }>();
+
+  const ruleHits: KnowledgeHit[] = rules.map((r) => ({
+    id: `rule:${r.id}`,
+    source_type: "rule",
+    rule_no: r.rule_no,
+    question: r.question ?? r.natural_text,
+    kind: "judgment",
+    status: "answered",
+    answer: r.natural_text,
+    answered_by: r.origin === "knowledge" ? r.answered_by : r.origin === "interview" ? "立ち上げ面談" : "オーナーが追加",
+    answered_at: r.origin === "knowledge" ? r.answered_at : r.activated_at,
+    score: Math.round(Math.max(similarity(query, r.natural_text), r.question ? similarity(query, r.question) : 0) * 100) / 100,
+  }));
+
+  return [
+    ...results.map((r) => ({
       ...r,
+      source_type: "knowledge" as const,
       status: (r.answer ? "answered" : "pending_owner") as KnowledgeHit["status"],
       score: Math.round(similarity(query, r.question) * 100) / 100,
-    }))
+    })),
+    ...ruleHits,
+  ]
     .sort((a, b) => b.score - a.score)
     .slice(0, opts.limit ?? 6);
 }
@@ -70,4 +103,14 @@ export async function searchKnowledge(
 export function sourceLabel(answeredBy: string, answeredAtIso: string): string {
   const d = new Date(new Date(answeredAtIso).getTime() + 9 * 60 * 60 * 1000);
   return `(${d.getUTCMonth() + 1}/${d.getUTCDate()} ${answeredBy}の回答)`;
+}
+
+// スタッフに返す文: 回答の原文 + 出典。ルールは「ルール6「…」(11/8 デモオーナーの回答から)」
+export function answerText(h: KnowledgeHit): string {
+  if (h.source_type === "rule") {
+    const when = h.answered_at ? sourceLabel(h.answered_by ?? "", h.answered_at).replace(/の回答\)$/, "の回答から)") : "";
+    const from = h.answered_by === "立ち上げ面談" ? "(立ち上げ面談で決めたこと)" : when;
+    return `ルール${h.rule_no}「${h.answer}」${from}`;
+  }
+  return `${h.answer}${sourceLabel(h.answered_by!, h.answered_at!)}`;
 }

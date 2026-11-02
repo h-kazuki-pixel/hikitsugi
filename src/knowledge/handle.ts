@@ -13,7 +13,7 @@ import type { SlackClient } from "../slack/api";
 import { isClosedDay } from "../views/StorePage";
 import { runHandoffAgent, type Decision, type ModelCall } from "./agent";
 import { createRuleCandidate, type RuleDrafter } from "../rules/candidate";
-import { sourceLabel } from "./search";
+import { answerText, sourceLabel } from "./search";
 
 export type KnowledgeDeps = { slack: SlackClient; agent: ModelCall; draftRule: RuleDrafter; newId: () => string };
 
@@ -27,7 +27,7 @@ export type QuestionOutcome =
 
 export const TEXT = {
   asking: "オーナーに確認します。答えが来たら、このスレッドに返します。",
-  waiting: "同じことをいまオーナーに確認しています。答えが来たら、引き継ぎ帳から返せるようになります。",
+  waiting: "同じことをいまオーナーに確認しています。答えが来たら、このスレッドにも返します。",
   closed: "今日は休業日なので、返事が遅れるかもしれません。",
 } as const;
 
@@ -78,10 +78,15 @@ export async function handleQuestion(
 
   const d = run.decision;
   if (d.type === "answer") {
-    const replied = await reply(`${d.hit.answer}${sourceLabel(d.hit.answered_by!, d.hit.answered_at!)}`);
+    const replied = await reply(answerText(d.hit));
     return { kind: "question", decision: "answer", knowledgeId: d.hit.id, replied, ownerAsked: false };
   }
   if (d.type === "wait") {
+    // オーナーには二度聞かない。答えが来たらこの人のスレッドにも返す
+    await db
+      .prepare("INSERT OR IGNORE INTO knowledge_waiters (id, knowledge_id, staff_id, channel_ref, message_ref) VALUES (?, ?, ?, ?, ?)")
+      .bind(deps.newId(), d.hit.id, ctx.sender.id, ev.channelRef, ev.messageRef)
+      .run();
     const replied = await reply(closed ? `${TEXT.waiting}\n${TEXT.closed}` : TEXT.waiting);
     return { kind: "question", decision: "wait", knowledgeId: d.hit.id, replied, ownerAsked: false };
   }
@@ -175,11 +180,23 @@ export async function handleOwnerAnswer(
       .then((r) => r.ok)
       .catch(() => false);
   }
+  // 同じ質問で待っていた人にも返す
+  const { results: waiters } = await db
+    .prepare("SELECT channel_ref, message_ref FROM knowledge_waiters WHERE knowledge_id = ? ORDER BY created_at")
+    .bind(k.id)
+    .all<{ channel_ref: string; message_ref: string }>();
+  for (const w of waiters) {
+    await deps.slack
+      .postMessage(w.channel_ref, `オーナーから答えが来ました。\n${ev.text}${sourceLabel(sender.display_name, ev.sentAt)}`, w.message_ref)
+      .catch(() => undefined);
+  }
+
   // 判断の答えはルール候補にする(有効にするのはオーナーの承認だけ)
   const candidate = await createRuleCandidate(db, deps, k, { id: answerId, text: ev.text });
 
   const who = k.asked_by ? `${k.asked_by}さん` : "質問した人";
-  const lines = [repliedToStaff ? `${who}に返し、引き継ぎ帳に残しました。` : `引き継ぎ帳に残しました(${who}への返事は送れませんでした)。`];
+  const others = waiters.length ? `(同じことを聞いていた${waiters.length}人にも返しました)` : "";
+  const lines = [repliedToStaff ? `${who}に返し、引き継ぎ帳に残しました。${others}` : `引き継ぎ帳に残しました(${who}への返事は送れませんでした)。`];
   if (candidate) {
     lines.push(
       `判断の答えなので、ルール候補にしました: ルール${candidate.ruleNo}「${candidate.naturalText}」`,

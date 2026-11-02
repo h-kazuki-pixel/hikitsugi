@@ -168,6 +168,7 @@ describe("知らない質問 → 確認中 → オーナーに一度だけ → �
     expect(out).toMatchObject({ kind: "question", decision: "wait", knowledgeId });
     expect(posted).toHaveLength(1);
     expect(posted[0]!.text).toBe(`${TEXT.waiting}\n${TEXT.closed}`);
+    expect(await db().prepare("SELECT staff_id FROM knowledge_waiters WHERE knowledge_id = ?").bind(knowledgeId).all()).toMatchObject({ results: [{ staff_id: "staff_haruto" }] });
   });
 
   it("オーナーが DM のスレッドで答える → スタッフのスレッドに出典つきで返し、回答を積む", async () => {
@@ -185,9 +186,11 @@ describe("知らない質問 → 確認中 → オーナーに一度だけ → �
       thread: ts(600),
       text: "オーナーから答えが来ました。\n加湿器は置いていい。ただし床置きはだめ。(11/8 デモオーナーの回答)",
     });
-    expect(posted[1]).toMatchObject({ channel: "D_DEMO_OWNER", thread: ownerAsk.ts });
-    expect(posted[1]!.text).toBe(
-      "みおさんに返し、引き継ぎ帳に残しました。\n判断の答えなので、ルール候補にしました: ルール6「加湿器は机上のみ可」\n店舗ページで承認すると、次から報告・写真の検出と引き継ぎ帳の答えの基準になります。",
+    // 確認中に同じことを聞いていたはるとにも返る(オーナーには一度しか聞いていない)
+    expect(posted[1]).toMatchObject({ channel: "D_DEMO_HARUTO", thread: ts(900), text: posted[0]!.text });
+    expect(posted[2]).toMatchObject({ channel: "D_DEMO_OWNER", thread: ownerAsk.ts });
+    expect(posted[2]!.text).toBe(
+      "みおさんに返し、引き継ぎ帳に残しました。(同じことを聞いていた1人にも返しました)\n判断の答えなので、ルール候補にしました: ルール6「加湿器は机上のみ可」\n店舗ページで承認すると、次から報告・写真の検出と引き継ぎ帳の答えの基準になります。",
     );
 
     const k = await db().prepare("SELECT status FROM knowledge WHERE id = ?").bind(knowledgeId).first();
@@ -318,5 +321,32 @@ describe("翌週の清掃報告: 承認したルールに照らして検出し�
     expect(html).toContain("ルールに該当");
     expect(html).toContain("ルール6に該当");
     expect(html).toContain("11/7 みおさんの質問");
+  });
+});
+
+describe("有効なルールも出典つきの判断として返す(仕様 2章)", () => {
+  it("検索にルールが出て、選ぶとルールの原文と由来を返す", async () => {
+    const hits = await searchKnowledge(db(), "tenjin", "加湿器 置いていい");
+    const rule = hits.find((h) => h.source_type === "rule" && h.rule_no === 6);
+    expect(rule).toMatchObject({ answer: "加湿器は机上のみ可", question: "加湿器って置いていい?", answered_by: "デモオーナー" });
+
+    const { deps, posted } = fakes([
+      [use("search_knowledge", { query: "加湿器 机" })],
+      [use("answer_from_source", { knowledge_id: rule!.id, why: "承認されたルール" })],
+    ]);
+    const out = await processReportEvent(db(), toReportEvent(dm({ user: "U_DEMO_MIO", channel: "D_DEMO_MIO", ts: ts(86_400 * 7), text: "加湿器って床に置いてもいい?" }))!, deps);
+    expect(out).toMatchObject({ kind: "question", decision: "answer" });
+    expect(posted[0]!.text).toBe("ルール6「加湿器は机上のみ可」(11/8 デモオーナーの回答から)");
+  });
+
+  it("面談のルールは「立ち上げ面談で決めたこと」として返す", async () => {
+    const hits = await searchKnowledge(db(), "yakuin", "薬院店 週何回");
+    const r5 = hits.find((h) => h.rule_no === 5)!;
+    const { deps, posted } = fakes([
+      [use("search_knowledge", { query: "薬院店 回数" })],
+      [use("answer_from_source", { knowledge_id: r5.id, why: "回数のルール" })],
+    ]);
+    await processReportEvent(db(), toReportEvent(dm({ user: "U_DEMO_SOTA", channel: "D_DEMO_SOTA", ts: ts(86_400 * 7 + 60), text: "薬院店って週何回行けばいい?" }))!, deps);
+    expect(posted[0]!.text).toBe("ルール5「薬院店は週1回の巡回でいい。天神店は週4回」(立ち上げ面談で決めたこと)");
   });
 });

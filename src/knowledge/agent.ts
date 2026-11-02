@@ -36,7 +36,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "search_knowledge",
     description:
-      "店舗の引き継ぎ帳を探す。人(オーナー・副担当)が過去に実際に答えた質問と回答、出典(誰がいつ)が返る。答えのない質問(オーナー確認中)も返る。言い換えて何度呼んでもよい",
+      "店舗の引き継ぎ帳を探す。人(オーナー・副担当)が過去に実際に答えた質問と回答、出典(誰がいつ)が返る。オーナーが承認した有効なルール(source_type = rule)も返る。答えのない質問(オーナー確認中)も返る。言い換えて何度呼んでもよい",
     input_schema: {
       type: "object",
       properties: { query: { type: "string", description: "探す言葉(質問の言い換えでよい)" } },
@@ -102,6 +102,8 @@ function system(storeName: string): string {
 function hitForModel(h: KnowledgeHit) {
   return {
     id: h.id,
+    source_type: h.source_type,
+    ...(h.rule_no ? { rule_no: h.rule_no } : {}),
     question: h.question,
     kind: h.kind,
     status: h.status,
