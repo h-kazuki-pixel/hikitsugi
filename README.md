@@ -4,6 +4,13 @@
 
 設計は [docs/設計書.md](docs/設計書.md) と [docs/仕様.md](docs/仕様.md)。
 
+## 環境と実店舗データの守り方
+
+- 環境は `demo`(架空データ・公開)と `production`(実店舗)の2つ。Worker・D1・Queues は環境ごとに別
+- production のオーナー画面(Slack と入室の Webhook 以外のすべて)は Cloudflare Access の背後に置く。Worker の側でも `Cf-Access-Jwt-Assertion` ヘッダーの JWT(署名・発行者・AUD・有効期限)を検証し、検証できなければ 403 を返す。設定が入っていないときも 403(通さない側に倒す)。demo では何もしない
+- Access の設定(チームのドメイン `ACCESS_TEAM_DOMAIN`、アプリの AUD タグ `ACCESS_AUD`)は秘密情報と同じ経路で渡す(GitHub Secrets → ワークフロー → `wrangler secret put`)
+- production へのデプロイは、Cloudflare ダッシュボードで Access を設定してから行う
+
 ## 開発での Claude Code の使い分け
 
 - フック: コミット前の実データ検査(下記)

@@ -12,4 +12,7 @@ export type Env = {
   SLACK_SIGNING_SECRET?: string;
   SLACK_BOT_TOKEN?: string;
   ENTRY_WEBHOOK_SECRET?: string;
+  // production のオーナー画面を守る Cloudflare Access の設定(秘密情報と同じ経路で入れる)
+  ACCESS_TEAM_DOMAIN?: string; // 例: <チーム名>.cloudflareaccess.com
+  ACCESS_AUD?: string; // Access アプリケーションの AUD タグ
 };

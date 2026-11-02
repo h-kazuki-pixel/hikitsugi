@@ -1,10 +1,13 @@
 import { Hono } from "hono";
 import type { Env, Job } from "./env";
+import { accessGuard } from "./middleware/access-guard";
 import { stores } from "./routes/stores";
 import { NotFoundPage } from "./views/StorePage";
 
 export const app = new Hono<{ Bindings: Env }>();
 
+// production ではオーナー画面を Cloudflare Access の背後に置く(Webhook は除く)。demo では何もしない
+app.use("*", accessGuard);
 app.route("/", stores);
 app.notFound((c) => c.html(<NotFoundPage />, 404));
 
