@@ -98,7 +98,7 @@ GitHub Actions で行う。秘密情報はリポジトリにもセッション�
 |---|---|---|
 | [test](.github/workflows/test.yml) | PR ごと、デプロイの前 | 型検査とテスト |
 | [deploy-demo](.github/workflows/deploy-demo.yml) | main への push(マージ)、手動 | テスト → D1 マイグレーション → 架空の seed → デプロイ → 秘密情報 → 動作確認(`/stores/tenjin` が 200) |
-| [deploy-production](.github/workflows/deploy-production.yml) | **手動のみ** | 確認入力と Access の設定を確かめる → テスト → D1 マイグレーション → デプロイ → 秘密情報 → 動作確認(JWT なしの `/` が 403)。seed は流さない |
+| [deploy-production](.github/workflows/deploy-production.yml) | **手動のみ** | 確認入力 → テスト → D1 マイグレーション → デプロイ → 秘密情報 → 動作確認(ログインなしの `/` が 403、Access の設定後は 302)。Access の設定がなければ初回デプロイとして続ける。seed は流さない |
 
 seed は `INSERT OR IGNORE` なので、何度流しても同じ結果になる(既にある行は上書きしない)。
 
@@ -108,6 +108,7 @@ seed は `INSERT OR IGNORE` なので、何度流しても同じ結果になる(
 2. Cloudflare の API トークンを作る。権限はアカウントの「Workers スクリプト: 編集」「D1: 編集」「Queues: 編集」「アカウント設定: 読み取り」と、ユーザーの「メンバーシップ: 読み取り」「ユーザーの詳細: 読み取り」
 3. GitHub のリポジトリの Secrets に登録する(Settings → Secrets and variables → Actions → Repository secrets)
    - `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`
+   - 貼り付けるときに末尾の改行が入りやすい。ワークフローは前後の空白・改行を取り除いて使い、取り除いたときは警告を出す(初回のデプロイはこれで落ちた)
 4. Worker の秘密情報は、GitHub の Environment ごとに登録する(Settings → Environments → `demo` / `production` → Environment secrets)。未登録のものは飛ばすので、そろっていなくてもワークフローは落ちない
    - `ANTHROPIC_API_KEY`、`SLACK_SIGNING_SECRET`、`SLACK_BOT_TOKEN`、`ENTRY_WEBHOOK_SECRET`
    - production だけ: `ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`(下の Access の手順で得る)
@@ -115,27 +116,26 @@ seed は `INSERT OR IGNORE` なので、何度流しても同じ結果になる(
 
 ### production の公開手順
 
-**Cloudflare Access を設定するまで、production のワークフローは実行しない。** ワークフローも、Access の設定(`ACCESS_TEAM_DOMAIN` / `ACCESS_AUD`)が production の Secrets にないと、何もデプロイせずに止まる。コードの側でも、Access の JWT が検証できないオーナー画面はすべて 403 になる。
+手順は **初回デプロイ → 403 を確認 → Access を設定 → Secrets を登録 → 再デプロイ**。
 
-Cloudflare ダッシュボード(Zero Trust)で行うこと:
+初回だけは Cloudflare Access の設定なしでデプロイする。`workers.dev` の URL で Access を有効にするには、Worker が先に存在している必要があるため。Access の設定(`ACCESS_TEAM_DOMAIN` / `ACCESS_AUD`)がない間は、コードが Webhook 以外のすべてに 403 を返すので、実店舗の画面は出ない。
 
-1. **守る URL を決めて Access アプリケーションを作る。** どちらかで行う
-   - 自分のドメインで公開する場合: Worker にカスタムドメイン(例: `hikitsugi.<自分のドメイン>`)を付け、Zero Trust → Access → Applications → Add an application → Self-hosted で、そのドメインを登録する
-   - `workers.dev` の URL のまま使う場合: Workers & Pages → `hikitsugi-production` → Settings → Domains & Routes の workers.dev の行で Cloudflare Access を有効にする。**この方法は Worker が先に存在している必要がある**ので、初回のデプロイをどう扱うかを先に決める(コードは Access の設定がなければ 403 を返すので、デプロイしても実店舗の画面は出ない)
-2. **ポリシーを Allow にし、オーナーと副担当のメールアドレスだけを含める**
-3. **Webhook の2つの入口(`/slack/events`、`/events/entry`)は Access を通さない。** Slack と鍵はログインできないので、送り手の署名で検証する。同じホスト名でパスを指定したアプリケーションを作り、ポリシーを Bypass(Everyone)にする
-4. **設定値を控える**
-   - チームのドメイン: `<チーム名>.cloudflareaccess.com`(Zero Trust → Settings で確認できる)
-   - AUD: 1 で作ったアプリケーションの Overview にある Application Audience (AUD) Tag
-5. **GitHub の Environment `production` の Secrets に `ACCESS_TEAM_DOMAIN` と `ACCESS_AUD` を登録する**
+1. **初回デプロイ**: Actions → deploy-production → Run workflow。確認欄に `production` と入れて実行する。Access の設定がないので「初回デプロイ」として続く
+2. **403 を確認**: ワークフローの動作確認が「ログインなしの `/` が 403」を確かめる。ブラウザでも production の URL を開き、「このページは開けません」になることを確かめる
+3. **Access を設定**(Cloudflare ダッシュボード)
+   - Workers & Pages → `hikitsugi-production` → Settings → Domains & Routes の workers.dev の行で Cloudflare Access を有効にする(自分のドメインで公開する場合は、Worker にカスタムドメインを付け、Zero Trust → Access → Applications → Add an application → Self-hosted で登録する)
+   - ポリシーを Allow にし、オーナーと副担当のメールアドレスだけを含める
+   - Webhook の2つの入口(`/slack/events`、`/events/entry`)は Access を通さない。Slack と鍵はログインできないので、送り手の署名で検証する。同じホスト名でパスを指定したアプリケーションを作り、ポリシーを Bypass(Everyone)にする
+   - 設定値を控える。チームのドメインは `<チーム名>.cloudflareaccess.com`(Zero Trust → Settings で確認できる)。AUD は、守るアプリケーションの Overview にある Application Audience (AUD) Tag
+4. **Secrets を登録**: GitHub の Environment `production` の Secrets に `ACCESS_TEAM_DOMAIN` と `ACCESS_AUD` を登録する
+5. **再デプロイ**: もう一度 deploy-production を実行する。動作確認はログインなしの `/` が 302(Access のログイン画面への転送)になる。ブラウザで開いてログイン画面が出ること、ログイン後に店舗一覧が出ることを確かめる。`/events/entry` がログイン画面にならない(Bypass が効いている)ことも確かめる
 
 そのあと:
 
-6. Actions → deploy-production → Run workflow。確認欄に `production` と入れて実行する
-7. ワークフローが「JWT なしの `/` が 403」を確かめる。ブラウザで開き、Access のログイン画面が出ること、ログイン後に店舗一覧が出ることを確かめる。`/events/entry` が Access のログイン画面にならない(Bypass が効いている)ことも確かめる。RemoteLOCK の通知先の登録は、この入口が 200 を返すようになってから行う(docs/07 の5)
-8. 実店舗の名簿(Slack ID・解錠ID)は実データなのでリポジトリに置かない。入れ方は別途決める
+- RemoteLOCK の通知先の登録は、`/events/entry` が本番で 200 を返すようになってから行う(docs/07 の5)
+- 実店舗の名簿(Slack ID・解錠ID)は実データなのでリポジトリに置かない。入れ方は別途決める
 
-ダッシュボードの項目名は変わることがある。見つからなければ Cloudflare のドキュメント(Access の Self-hosted applications、Workers の workers.dev と Access)を参照する。
+ダッシュボードの項目名は変わることがある。見つからなければ Cloudflare のドキュメント(Workers の workers.dev と Access、Access の Self-hosted applications)を参照する。
 
 ## ローカルで動かす
 

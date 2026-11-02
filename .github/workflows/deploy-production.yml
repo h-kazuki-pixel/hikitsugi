@@ -1,8 +1,12 @@
 # production 環境(実店舗): 手動実行(workflow_dispatch)だけ。push では動かない
 #
-# Cloudflare Access を設定するまで実行しない(README「production の公開手順」)。
-# 念のため、Access の設定(ACCESS_TEAM_DOMAIN / ACCESS_AUD)が production の Secrets にないと、
-# 何もデプロイせずに止まる。seed は流さない(架空データを実店舗の D1 に入れない)。
+# 公開の手順(README「production の公開手順」):
+#   初回デプロイ → 403 を確認 → Cloudflare Access を設定 → Secrets を登録 → 再デプロイ
+#
+# 初回だけは Access の設定(ACCESS_TEAM_DOMAIN / ACCESS_AUD)がなくてもデプロイしてよい。
+# workers.dev で Access を有効にするには Worker が先に存在している必要があるため。
+# Access の設定がない間は、コードが Webhook 以外のすべてに 403 を返すので、実店舗の画面は出ない。
+# seed は流さない(架空データを実店舗の D1 に入れない)。
 name: deploy-production
 
 on:
@@ -29,14 +33,20 @@ jobs:
             echo "::error::確認の入力が \"production\" ではないので止めました"
             exit 1
           fi
-      - name: Cloudflare Access の設定があるか確かめる
+      - name: Cloudflare Access の設定があるか確かめる(なければ初回デプロイとして続ける)
         env:
           ACCESS_TEAM_DOMAIN: ${{ secrets.ACCESS_TEAM_DOMAIN }}
           ACCESS_AUD: ${{ secrets.ACCESS_AUD }}
         run: |
           if [ -z "$ACCESS_TEAM_DOMAIN" ] || [ -z "$ACCESS_AUD" ]; then
-            echo "::error::production の Secrets に ACCESS_TEAM_DOMAIN と ACCESS_AUD がありません。README の手順で Cloudflare Access を設定してから実行してください"
-            exit 1
+            echo "::warning::Access の設定(ACCESS_TEAM_DOMAIN / ACCESS_AUD)がまだありません。初回デプロイとして続けます。オーナー画面はすべて 403 になります。Access を設定して Secrets を登録したら、もう一度実行してください"
+            {
+              echo "### 初回デプロイ(Access 未設定)"
+              echo ""
+              echo "オーナー画面はすべて 403 になります。次は README の手順で Access を設定し、production の Secrets に ACCESS_TEAM_DOMAIN と ACCESS_AUD を登録して、再デプロイしてください。"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Access の設定があります"
           fi
 
   test:
