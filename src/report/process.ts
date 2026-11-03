@@ -53,7 +53,8 @@ export type ProcessOutcome =
 
 const MAX_IMAGES = 4;
 
-type Store = { id: string; name: string; tone_sample: string | null };
+// accepts_operator_posts: テスト用の店舗チャンネルだけ、運営の投稿も報告として受ける(migrations 0010)
+type Store = { id: string; name: string; tone_sample: string | null; accepts_operator_posts?: number };
 type Person = { id: string; display_name: string; role: "staff" | "sub" | "owner" };
 
 export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: ProcessDeps): Promise<ProcessOutcome> {
@@ -84,7 +85,7 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
     }
   } else {
     store = await db
-      .prepare("SELECT id, name, tone_sample FROM stores WHERE slack_channel_id = ?")
+      .prepare("SELECT id, name, tone_sample, accepts_operator_posts FROM stores WHERE slack_channel_id = ?")
       .bind(ev.channelRef)
       .first<Store>();
     if (!store) return { kind: "ignored", reason: "unknown_channel" };
@@ -104,7 +105,8 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
     .prepare("SELECT id, display_name, role FROM staff WHERE slack_user_id = ? AND status = 'active'")
     .bind(ev.senderRef)
     .first<Person>();
-  if (sender && sender.role !== "staff") return { kind: "ignored", reason: "operator_post" };
+  // 運営の投稿は報告として数えない(設計書 5-2)。テスト用の店舗チャンネルだけ例外
+  if (sender && sender.role !== "staff" && !store.accepts_operator_posts) return { kind: "ignored", reason: "operator_post" };
 
   const { results: areas } = await db
     .prepare("SELECT id, name FROM areas WHERE store_id = ? AND active = 1 ORDER BY sort_order")

@@ -92,3 +92,11 @@ test("頻度「毎日(N日空いても可)」と全店の知識(店舗を持た�
   bad.stores[0]["2_清掃箇所"].push({ id: "x_bad", 名前: "架空", 頻度: "毎日が理想" });
   assert.throws(() => buildSeedSql(bad, { env: "production", }), /頻度が読めません/);
 });
+
+test("テスト用の店舗チャンネルの印(運営の投稿も報告として受ける)は、書いた店だけ 1 になる", () => {
+  const seed = productionLike();
+  seed.stores[1]["4_報告の手段"].運営の投稿も報告として受ける = true;
+  const stores = buildSeedSql(seed, { env: "production" }).split("\n").filter((l) => l.startsWith("INSERT OR IGNORE INTO stores"));
+  assert.match(stores[0], /photo_required, accepts_operator_posts, .*VALUES \('tenjin', .*'CTESTCHANA', 0, 0,/);
+  assert.match(stores[1], /VALUES \('yakuin', .*'CTESTCHANB', 0, 1,/);
+});

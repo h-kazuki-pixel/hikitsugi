@@ -90,3 +90,39 @@ describe("GET /usage", () => {
     expect(html).toContain("引き継ぎ帳");
   });
 });
+
+describe("備品切れ(報告から)", () => {
+  const db = () => proxy.env.DB;
+  const ago = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  beforeAll(async () => {
+    // 架空の報告: 1日前に備品切れあり、8日前に備品切れあり(7日より前なので出さない)
+    for (const [id, sentAt, supplies] of [
+      ["r_sup_new", ago(1), ["架空のトイレットペーパー", "架空の紙コップ"]],
+      ["r_sup_old", ago(8), ["架空の古い品目"]],
+    ] as const) {
+      await db()
+        .prepare("INSERT INTO reports (id, store_id, sender_ref, sent_at, received_at, channel, channel_ref, message_ref) VALUES (?, 'yakuin', 'U_DEMO_SOTA', ?, ?, 'seed', 'C_DEMO_YAKUIN', ?)")
+        .bind(id, sentAt, sentAt, id)
+        .run();
+      await db()
+        .prepare("INSERT INTO report_versions (id, report_id, version, performer_staff_id, supplies_out, basis) VALUES (?, ?, 1, 'staff_sota', ?, 'structuring')")
+        .bind(`${id}_v1`, id, JSON.stringify(supplies))
+        .run();
+    }
+  });
+
+  it("直近7日の報告の備品切れを、品目と報告した人で並べる。通知はしないと書く", async () => {
+    const html = await (await app.request("/stores/yakuin", {}, proxy.env)).text();
+    expect(html).toContain("備品切れ(報告から)");
+    expect(html).toContain("架空のトイレットペーパー、架空の紙コップ");
+    expect(html).toContain("そうたさんの報告");
+    expect(html).not.toContain("架空の古い品目");
+    expect(html).toContain("発注はこれまでどおり発注リクエストフォームから");
+  });
+
+  it("なければ、ないと出す", async () => {
+    const html = await (await app.request("/stores/tenjin", {}, proxy.env)).text();
+    expect(html).toContain("備品切れ(報告から)");
+  });
+});

@@ -3,6 +3,7 @@ import type { JstDate } from "../lib/time";
 import { DemoPanel, DraftsSection, type DraftRow } from "./DraftsSection";
 import { FindingsSection, type FindingRow } from "./FindingsSection";
 import { RulesSection, type RuleRow } from "./RulesSection";
+import { SuppliesSection, type SupplyRow } from "./SuppliesSection";
 
 export type StoreRow = {
   id: string;
@@ -32,7 +33,7 @@ export function isClosedDay(closedDaysJson: string, today: JstDate): boolean {
   }
 }
 
-export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: JstDate; isDemo: boolean; rules?: RuleRow[]; findings?: FindingRow[]; drafts?: DraftRow[]; demoStaff?: { id: string; display_name: string }[] }) {
+export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: JstDate; isDemo: boolean; rules?: RuleRow[]; findings?: FindingRow[]; drafts?: DraftRow[]; supplies?: SupplyRow[]; demoStaff?: { id: string; display_name: string }[] }) {
   const { store, board, today, isDemo } = props;
   const closed = isClosedDay(store.closed_days, today);
   return (
@@ -81,6 +82,8 @@ export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: Js
       </section>
 
       <DraftsSection storeId={store.id} drafts={props.drafts ?? []} />
+
+      <SuppliesSection rows={props.supplies ?? []} />
 
       <FindingsSection findings={props.findings ?? []} />
 
