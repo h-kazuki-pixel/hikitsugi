@@ -63,3 +63,48 @@ describe("朝の繰り越し", () => {
     expect(d).toEqual({ status: "done" });
   });
 });
+
+describe("毎日(N日空いても可)の箇所の繰り越し(実店舗の西新店)", () => {
+  // 7:00 JST の朝の定時を、その日の分だけ回す
+  const morningOf = (date: string) => runMorning(db(), new Date(Date.parse(`${date}T07:00:00+09:00`)).toISOString(), { slack: null });
+  const status = (area: string, date: string) =>
+    db().prepare("SELECT status, carried_from_date FROM board_items WHERE area_id = ? AND date = ?").bind(area, date).first<{ status: string; carried_from_date: string | null }>();
+
+  beforeAll(async () => {
+    await db()
+      .prepare(
+        "INSERT INTO areas (id, store_id, name, frequency, sort_order) VALUES ('tenjin_gap1', 'tenjin', '架空のロビー', 'daily_gap:1', 91), ('tenjin_gap2', 'tenjin', '架空の階段', 'daily_gap:2', 92)",
+      )
+      .run();
+    await db()
+      .prepare(
+        "INSERT INTO reports (id, store_id, sender_ref, sent_at, received_at, channel, channel_ref, message_ref) VALUES ('r_gap', 'tenjin', 'U_DEMO_AOI', '2027-01-01T09:00:00Z', '2027-01-01T09:00:00Z', 'seed', 'C_DEMO_TENJIN', 'm_gap')",
+      )
+      .run();
+  });
+  // ローカルの D1 はテストのファイルで共有する。後のテスト(箇所の数を数えるもの)に残さない
+  afterAll(async () => {
+    await db().prepare("DELETE FROM board_items WHERE area_id IN ('tenjin_gap1', 'tenjin_gap2')").run();
+    await db().prepare("DELETE FROM areas WHERE id IN ('tenjin_gap1', 'tenjin_gap2')").run();
+  });
+
+  it("1日空いても可: 1日空いただけでは繰り越さず、2日続けて空いたら繰り越す。2日空いても可は3日続けて空いたら", async () => {
+    await morningOf("2027-01-01");
+    await markDone(db(), "tenjin", "2027-01-01", ["tenjin_gap1", "tenjin_gap2"], "r_gap"); // 1/1 に両方終わった
+    await morningOf("2027-01-02"); // 1/1 は完了
+    await morningOf("2027-01-03"); // 1/2 だけ空いた
+    expect(await status("tenjin_gap1", "2027-01-03")).toMatchObject({ status: "pending" });
+    await morningOf("2027-01-04"); // 1/2・1/3 と2日続けて空いた
+    expect(await status("tenjin_gap1", "2027-01-04")).toEqual({ status: "carried_over", carried_from_date: "2027-01-02" });
+    expect(await status("tenjin_gap2", "2027-01-04")).toMatchObject({ status: "pending" }); // 2日空いても可
+    await morningOf("2027-01-05"); // 1/2・1/3・1/4 と3日続けて空いた
+    expect(await status("tenjin_gap2", "2027-01-05")).toEqual({ status: "carried_over", carried_from_date: "2027-01-02" });
+    expect(await status("tenjin_gap1", "2027-01-05")).toEqual({ status: "carried_over", carried_from_date: "2027-01-02" }); // 続けて繰り越すと、いつからは最初の日のまま
+  });
+
+  it("ボードがそろっていない(動かし始めたばかり)ときは繰り越さない", async () => {
+    await morningOf("2027-02-01");
+    await morningOf("2027-02-02"); // 1/31 のボードはない
+    expect(await status("tenjin_gap1", "2027-02-02")).toMatchObject({ status: "pending" });
+  });
+});
