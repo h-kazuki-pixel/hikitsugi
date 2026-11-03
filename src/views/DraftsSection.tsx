@@ -37,7 +37,7 @@ export const DRAFTS_QUERY = `
    WHERE d.store_id = ? AND d.status = 'pending'
    ORDER BY d.created_at`;
 
-// デモ用の操作(撮影用。demo 環境でだけ出す): 入室を模擬する / 夜の突き合わせを今動かす
+// デモ用の操作(撮影用。demo 環境でだけ出す): 入室を模擬する / 夜の突き合わせを今動かす / 朝の定時を今動かす
 export function DemoPanel(props: { storeId: string; staff: { id: string; display_name: string }[] }) {
   return (
     <section class="card" aria-labelledby="demo-title">
@@ -60,6 +60,10 @@ export function DemoPanel(props: { storeId: string; staff: { id: string; display
       <form method="post" action={`/demo/stores/${props.storeId}/night`} class="add-rule">
         <label>夜の突き合わせ(ふだんは 21:30 に自動で動く)</label>
         <button type="submit">いま動かす</button>
+      </form>
+      <form method="post" action={`/demo/stores/${props.storeId}/morning`} class="add-rule">
+        <label>朝の定時(ふだんは 7:00 に自動で動く。全店の要約を1通、オーナーの DM に送る。知らせることがなければ送らない)</label>
+        <button type="submit">朝の定時をいま動かす</button>
       </form>
     </section>
   );

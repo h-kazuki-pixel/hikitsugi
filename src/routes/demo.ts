@@ -4,6 +4,7 @@ import type { Env } from "../env";
 // 撮影用の操作(demo 環境でだけ動く。日程 11/6「撮影用の機能(時刻を進める・場面の再現)」の最小形)
 // - 入室を模擬する: 鍵の解錠の代わりに、スタッフの入室を1件記録する(source = simulated)
 // - 夜の突き合わせを今動かす: Cron と同じく、キューに積むだけ
+// - 朝の定時を今動かす: 同じくキューに積むだけ(7:00 を待たずに朝の要約を確かめる)
 export const demo = new Hono<{ Bindings: Env }>();
 
 demo.use("/demo/*", async (c, next) => {
@@ -37,4 +38,12 @@ demo.post("/demo/stores/:id/night", async (c) => {
   if (!storeOk(storeId)) return c.text("Not Found", 404);
   await c.env.JOBS.send({ type: "cron", slot: "night", scheduledAt: new Date().toISOString(), storeId });
   return c.redirect(`/stores/${storeId}#findings-title`, 303);
+});
+
+// 朝の定時を今動かす: 朝の要約は全店で1通(オーナー宛て)なので、店を絞らずに積む。Cron と同じくキューに積むだけ
+demo.post("/demo/stores/:id/morning", async (c) => {
+  const storeId = c.req.param("id");
+  if (!storeOk(storeId)) return c.text("Not Found", 404);
+  await c.env.JOBS.send({ type: "cron", slot: "morning", scheduledAt: new Date().toISOString() });
+  return c.redirect(`/stores/${storeId}#demo-title`, 303);
 });

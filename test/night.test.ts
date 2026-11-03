@@ -200,5 +200,15 @@ describe("デモの操作(demo 環境だけ)", () => {
     const html = await (await app.request("/stores/tenjin", {}, proxy.env)).text();
     expect(html).toContain("入室を模擬する");
     expect(html).toContain("夜の突き合わせ");
+    expect(html).toContain("朝の定時をいま動かす");
+    expect(html).toContain('action="/demo/stores/tenjin/morning"');
+  });
+
+  it("朝の定時をいま動かすと、キューに積んで店舗ページに戻る。production では動かない", async () => {
+    const res = await post("/demo/stores/tenjin/morning", {});
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/stores/tenjin#demo-title");
+    const prod = await app.request("/demo/stores/tenjin/morning", { method: "POST" }, { ...proxy.env, ENVIRONMENT: "production" as const });
+    expect([403, 404]).toContain(prod.status);
   });
 });
