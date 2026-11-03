@@ -110,5 +110,6 @@ export const owner_rules = [
   { no: 2, 店舗: null, 自然文: "入室したのに2時間たっても報告がなければ、本人に軽く声をかける下書きを作って", 条件: { entry_without_report_minutes: 120 }, 対象: { role: "staff" }, 動作: "下書きを作る", 宛先: "本人", 緊急度: "定時" },
   { no: 3, 店舗: null, 自然文: "備品切れは副担当に回して。私には週次の要約だけでいい", 条件: { report: { supplies_out: true } }, 対象: { scope: "all_stores" }, 動作: "知らせる", 宛先: "副担当", 緊急度: "週次" },
   { no: 4, 店舗: null, 自然文: "週4回に満たない人が2週続いたら、私に知らせて", 条件: { weekly_days_below_quota: { weeks_in_a_row: 2 } }, 対象: { role: "staff" }, 動作: "知らせる", 宛先: "オーナー", 緊急度: "週次" },
-  { no: 5, 店舗: "yakuin", 自然文: "薬院店は週1回の巡回でいい。天神店は週4回", 条件: {}, 対象: { store: "yakuin", visits_per_week: 1 }, 動作: "義務回数を変える", 宛先: null, 緊急度: "週次" },
+  // 文面が両店に触れるので全店のルールにする(店舗を薬院店にすると、天神店のページの一覧に出ない)
+  { no: 5, 店舗: null, 自然文: "薬院店は週1回の巡回でいい。天神店は週4回", 条件: {}, 対象: { scope: "all_stores", visits_per_week: { yakuin: 1, tenjin: 4 } }, 動作: "義務回数を変える", 宛先: null, 緊急度: "週次" },
 ];

@@ -35,6 +35,14 @@ describe("GET /stores/:id", () => {
     expect(html).toContain("週次巡回の店");
   });
 
+  it("面談のルール1〜5は全店のルールなので、どちらの店のルール一覧にも出る", async () => {
+    for (const store of ["tenjin", "yakuin"]) {
+      const html = await (await get(`/stores/${store}`)).text();
+      for (const no of [1, 2, 3, 4, 5]) expect(html, `${store} のルール${no}`).toContain(`ルール${no}「`);
+      expect(html).toContain("ルール5「薬院店は週1回の巡回でいい。天神店は週4回」");
+    }
+  });
+
   it("今日のボードに行があれば、箇所と状態を日本語で出す", async () => {
     const today = jstDate().iso;
     await proxy.env.DB.prepare(
