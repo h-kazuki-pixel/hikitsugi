@@ -9,6 +9,9 @@
 #   files:read        写真を受け取る(file_shared、files.info → url_private_download)
 #   chat:write        受付・聞き返し・回答をスレッドに返す、承認後の声かけを DM で送る
 #   im:write          承認後の声かけのために DM を開く(conversations.open)
+# groups:read は入れない。チャンネルの一覧・名前・メンバーを読む API(conversations.info / list / members)のための
+# スコープで、このアプリは呼ばない。プライベートチャンネルの投稿を受け取るのは groups:history、返事を書くのは chat:write、
+# 写真を取り出すのは files:read で足りる(ボットがチャンネルに招かれていること)。最小のスコープにしておく
 # Request URL は production の Worker。/slack/events は Cloudflare Access を通さない(Bypass)。Slack の署名で検証する
 
 display_information:

@@ -1,5 +1,6 @@
 // Slack Events API の入口: 署名の検証と url_verification
 import { describe, expect, it } from "vitest";
+import { toReportEvent, type SlackMessageEvent } from "../src/channels/slack";
 import { app } from "../src/index";
 import { signSlack, verifySlackRequest } from "../src/slack/verify";
 
@@ -84,5 +85,41 @@ describe("POST /slack/events", () => {
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({ challenge: "challenge-abc" });
     expect((await post(eventBody, { secret: undefined, sign: false })).status).toBe(503);
+  });
+});
+
+// 実店舗の店舗チャンネルはプライベートチャンネル。Slack は message.groups で channel_type: "group" として届ける。
+// 報告の処理は共通の報告イベントしか見ない(channel_type で分かれるのは DM かどうかだけ)ので、
+// 公開チャンネルと同じイベントになれば、受付・聞き返し・写真・引き継ぎ帳・ルール照合はすべて同じ経路を通る
+describe("プライベートチャンネル(message.groups)", () => {
+  const photo = { id: "F_DEMO_1", mimetype: "image/jpeg", name: "toilet.jpg", thumb_1024: "https://files.slack.com/demo/toilet.jpg" };
+  const cases: [string, SlackMessageEvent][] = [
+    ["文だけの報告", { type: "message", user: "U_DEMO_AOI", channel: "C_DEMO_TENJIN", ts: "1761989100.000100", text: "トイレ終わりました" }],
+    ["写真つきの報告", { type: "message", subtype: "file_share", user: "U_DEMO_AOI", channel: "C_DEMO_TENJIN", ts: "1761989200.000100", text: "", files: [photo] }],
+    ["聞き返しへのスレッド返事", { type: "message", user: "U_DEMO_AOI", channel: "C_DEMO_TENJIN", ts: "1761989300.000100", thread_ts: "1761989100.000100", text: "拾いました" }],
+    ["店舗チャンネルでの質問", { type: "message", user: "U_DEMO_MIO", channel: "C_DEMO_TENJIN", ts: "1761989400.000100", text: "席に財布が置きっぱなしだけど、どうすればいい?" }],
+  ];
+  for (const [name, ev] of cases) {
+    it(`${name}: 公開チャンネルと同じ報告イベントになる`, () => {
+      const pub = toReportEvent({ ...ev, channel_type: "channel" });
+      const priv = toReportEvent({ ...ev, channel_type: "group" });
+      expect(pub).not.toBeNull();
+      expect(priv).toEqual(pub);
+      expect(priv!.isDirect).toBe(false);
+    });
+  }
+
+  it("ボットの投稿は、プライベートチャンネルでも無視する", () => {
+    expect(toReportEvent({ type: "message", bot_id: "B_DEMO", channel: "C_DEMO_TENJIN", channel_type: "group", ts: "1", text: "受け付けました" })).toBeNull();
+  });
+
+  it("プライベートチャンネルの投稿も、署名を確かめてキューに積む", async () => {
+    const sent: unknown[] = [];
+    const body = JSON.stringify({ type: "event_callback", event: { type: "message", channel_type: "group", user: "U_DEMO_AOI", channel: "C_DEMO_TENJIN", ts: "1761989500.000100", text: "ゴミ出しました" } });
+    const ts = String(now());
+    const headers = { "content-type": "application/json", "X-Slack-Request-Timestamp": ts, "X-Slack-Signature": await signSlack(SECRET, ts, body) };
+    const env = { ENVIRONMENT: "demo", SLACK_SIGNING_SECRET: SECRET, JOBS: { send: async (m: unknown) => void sent.push(m) } };
+    expect((await app.request("/slack/events", { method: "POST", headers, body }, env)).status).toBe(200);
+    expect(sent).toMatchObject([{ type: "report_event", event: { channelRef: "C_DEMO_TENJIN", isDirect: false } }]);
   });
 });
