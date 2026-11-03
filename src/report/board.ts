@@ -80,6 +80,7 @@ export async function resyncBoard(db: D1Database, storeId: string, date: string,
 
 // 朝の繰り越し(仕様 5章「朝: 前日の未清掃を繰り越し、今日のボードを生成」)
 // 毎日の箇所で前日に完了しなかったものを、今日のボードで「繰り越し」にする。いつからの繰り越しかを残す。
+// 「毎日(N日空いても可)」の箇所は、N+1日続けて完了しなかったときだけ繰り越す(実店舗の西新店。11/4 オーナーの判断)。
 // 何度呼んでも同じ(今日の行が未清掃のときだけ変える)。前日のボードがなければ(動かし始めた日)繰り越さない。
 export async function carryOver(db: D1Database, storeId: string, date: string, yesterday: string): Promise<number> {
   await ensureBoard(db, storeId, date);
@@ -98,5 +99,25 @@ export async function carryOver(db: D1Database, storeId: string, date: string, y
     )
     .bind(yesterday, storeId, date, storeId, yesterday)
     .run();
-  return res.meta.changes ?? 0;
+  // 「毎日(N日空いても可)」の箇所(frequency = 'daily_gap:N'): 前日までの N+1日、続けて完了しなかったら繰り越す。
+  // その日数分のボードがそろっていなければ(動かし始めたばかり)繰り越さない。いつからかは、空きの最初の日
+  const gap = await db
+    .prepare(
+      `UPDATE board_items AS t
+          SET status = 'carried_over',
+              carried_from_date = coalesce(
+                (SELECT y.carried_from_date FROM board_items y WHERE y.store_id = t.store_id AND y.date = ? AND y.area_id = t.area_id),
+                (SELECT date(?, '-' || CAST(substr(a.frequency, 11) AS INTEGER) || ' days') FROM areas a WHERE a.id = t.area_id)),
+              updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+        WHERE t.store_id = ? AND t.date = ? AND t.status = 'pending'
+          AND t.area_id IN (SELECT id FROM areas WHERE store_id = ? AND active = 1 AND frequency LIKE 'daily_gap:%')
+          AND (SELECT count(*) FROM board_items y
+                WHERE y.store_id = t.store_id AND y.area_id = t.area_id
+                  AND y.date <= ? AND y.status IN ('pending', 'carried_over', 'needs_recheck')
+                  AND y.date >= (SELECT date(?, '-' || CAST(substr(a.frequency, 11) AS INTEGER) || ' days') FROM areas a WHERE a.id = t.area_id))
+              = (SELECT CAST(substr(a.frequency, 11) AS INTEGER) + 1 FROM areas a WHERE a.id = t.area_id)`,
+    )
+    .bind(yesterday, yesterday, storeId, date, storeId, yesterday, yesterday)
+    .run();
+  return (res.meta.changes ?? 0) + (gap.meta.changes ?? 0);
 }

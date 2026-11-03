@@ -79,3 +79,16 @@ test("--production: 不正なときも件数だけ出し、ID は出さない(--
   assert.doesNotMatch(quiet, /staff_aoi|U_DEMO_AOI/);
   assert.match(run(["--verbose"]), /staff_aoi/);
 });
+
+test("頻度「毎日(N日空いても可)」と全店の知識(店舗を持たない知識)", () => {
+  const seed = productionLike();
+  seed.stores[0]["2_清掃箇所"].push({ id: "x_lobby", 名前: "架空のロビー", 頻度: "毎日(1日空いても可)" }, { id: "x_stairs", 名前: "架空の階段", 頻度: "毎日(2日空いても可)" });
+  seed.全店の知識 = [{ id: "kn_all_x", 質問: "架空の質問?", 回答: "架空の答え。", 種別: "判断", 答えた人: seed.people.find((p) => p.役割 === "オーナー").id, 答えた: "2026-11-04 01:50" }];
+  const sql = buildSeedSql(seed, { env: "production" });
+  assert.match(sql, /'x_lobby', '[a-z]+', '架空のロビー', 'daily_gap:1'/);
+  assert.match(sql, /'daily_gap:2'/);
+  assert.match(sql, /INSERT OR IGNORE INTO knowledge \(id, store_id, .*VALUES \('kn_all_x', NULL,/);
+  const bad = productionLike();
+  bad.stores[0]["2_清掃箇所"].push({ id: "x_bad", 名前: "架空", 頻度: "毎日が理想" });
+  assert.throws(() => buildSeedSql(bad, { env: "production", }), /頻度が読めません/);
+});

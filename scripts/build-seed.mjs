@@ -36,6 +36,9 @@ const URGENCY = { 即時: "immediate", 定時: "scheduled", 週次: "weekly" };
 
 function frequency(f) {
   if (f === "毎日") return "daily";
+  // 毎日が理想だが、N日までは空いてもよい(N+1日続けて空いたら繰り越し)
+  const gap = f.match(/^毎日[((](\d+)日空いても可[))]$/);
+  if (gap) return `daily_gap:${gap[1]}`;
   if (f === "来たときに") return "on_visit";
   const m = f.match(/^週(\d+)回$/);
   if (m) return `weekly:${m[1]}`;
@@ -74,7 +77,18 @@ const DEMO_SHAPE = /U_DEMO_|C_DEMO_|demo-lock-/;
 const REAL_USER = /^[UW][A-Z0-9]{8,12}$/;
 const REAL_CHANNEL = /^[CG][A-Z0-9]{8,12}$/;
 
-export function validate({ people, stores, owner_rules, 運営の設定 }, { env = "demo" } = {}) {
+// 引き継ぎ帳の初期知識の1件を確かめる(店舗の塊7 と、全店の知識で同じ)
+function checkKnowledge(q, personIds, dup, errors) {
+  dup(q.id);
+  if (!q.回答 || !q.答えた人 || !q.答えた) errors.push(`${q.id}: 出典(回答・答えた人・答えた日時)のない知識は入れない`);
+  for (const t of [q.聞いた, q.答えた]) if (t && !JST_DATETIME.test(t)) errors.push(`${q.id}: 日時は YYYY-MM-DD HH:MM(JST)で書く: ${t}`);
+  if (q.聞いた && q.答えた && JST_DATETIME.test(q.聞いた) && JST_DATETIME.test(q.答えた) && q.聞いた > q.答えた) errors.push(`${q.id}: 答えた日時が聞いた日時より前です`);
+  if (q.答えた人 && !personIds.has(q.答えた人)) errors.push(`${q.id}: 答えた人 ${q.答えた人} が名簿にいません`);
+  if (q.聞いた人 && !personIds.has(q.聞いた人)) errors.push(`${q.id}: 聞いた人 ${q.聞いた人} が名簿にいません`);
+  if (q.種別 && !(q.種別 in KIND)) errors.push(`${q.id}: 種別は 場所 / 手順 / 判断 のどれか`);
+}
+
+export function validate({ people, stores, owner_rules, 運営の設定, 全店の知識 = [] }, { env = "demo" } = {}) {
   const errors = [];
   const prod = env === "production";
   if (!運営の設定) errors.push("運営の設定(塊3 のうち運営全体で決めるもの)がありません");
@@ -111,15 +125,16 @@ export function validate({ people, stores, owner_rules, 運営の設定 }, { env
     for (const m of s["3_スタッフ"]?.在籍 ?? []) if (!personIds.has(m)) errors.push(`${s.id}: 在籍 ${m} が名簿にいません`);
     const roles = s["6_連絡先と役割"] ?? {};
     for (const r of ["オーナー", "副担当"]) if (roles[r] && !personIds.has(roles[r])) errors.push(`${s.id}: ${r} ${roles[r]} が名簿にいません`);
-    for (const q of s["7_口調とよく聞かれる質問"]?.よく聞かれる質問 ?? []) {
-      dup(q.id);
-      if (!q.回答 || !q.答えた人 || !q.答えた) errors.push(`${q.id}: 出典(回答・答えた人・答えた日時)のない知識は入れない`);
-      for (const t of [q.聞いた, q.答えた]) if (t && !JST_DATETIME.test(t)) errors.push(`${q.id}: 日時は YYYY-MM-DD HH:MM(JST)で書く: ${t}`);
-      if (q.聞いた && q.答えた && JST_DATETIME.test(q.聞いた) && JST_DATETIME.test(q.答えた) && q.聞いた > q.答えた) errors.push(`${q.id}: 答えた日時が聞いた日時より前です`);
-      if (q.答えた人 && !personIds.has(q.答えた人)) errors.push(`${q.id}: 答えた人 ${q.答えた人} が名簿にいません`);
-      if (q.聞いた人 && !personIds.has(q.聞いた人)) errors.push(`${q.id}: 聞いた人 ${q.聞いた人} が名簿にいません`);
+    for (const q of s["7_口調とよく聞かれる質問"]?.よく聞かれる質問 ?? []) checkKnowledge(q, personIds, dup, errors);
+    for (const a of s["2_清掃箇所"] ?? []) {
+      try {
+        frequency(a.頻度);
+      } catch (e) {
+        errors.push(`${a.id}: ${e.message}`);
+      }
     }
   }
+  for (const q of 全店の知識) checkKnowledge(q, personIds, dup, errors);
   const nos = new Set();
   for (const r of owner_rules) {
     if (nos.has(r.no)) errors.push(`ルール番号が重複しています: ${r.no}`);
@@ -195,30 +210,30 @@ export function buildSeedSql(seed, { env = "demo", now = "2026-11-02T03:00:00Z" 
   }
   out.push("");
 
+  // 質問を「オーナー確認中」で入れ、回答を積む(回答が積まれるとトリガーが回答済みにする)。store_id が NULL なら全店の知識
+  const knowledgeRows = (q, storeId) => [
+    insert("knowledge", {
+      id: q.id,
+      store_id: storeId,
+      question: q.質問,
+      kind: code(KIND, q.種別, "種別"),
+      asked_by_staff_id: q.聞いた人 ?? null,
+      asked_at: jstToUtc(q.聞いた ?? q.答えた),
+      question_ref: "seed:立ち上げ面談",
+    }),
+    insert("knowledge_answers", {
+      id: `${q.id}_a1`,
+      knowledge_id: q.id,
+      answer: q.回答,
+      answered_by_staff_id: q.答えた人,
+      answered_at: jstToUtc(q.答えた),
+      answer_ref: "seed:立ち上げ面談",
+    }),
+  ];
   for (const s of stores) {
-    for (const q of s["7_口調とよく聞かれる質問"].よく聞かれる質問) {
-      // 質問を「オーナー確認中」で入れ、回答を積む(回答が積まれるとトリガーが回答済みにする)
-      out.push(
-        insert("knowledge", {
-          id: q.id,
-          store_id: s.id,
-          question: q.質問,
-          kind: code(KIND, q.種別, "種別"),
-          asked_by_staff_id: q.聞いた人 ?? null,
-          asked_at: jstToUtc(q.聞いた ?? q.答えた),
-          question_ref: "seed:立ち上げ面談",
-        }),
-        insert("knowledge_answers", {
-          id: `${q.id}_a1`,
-          knowledge_id: q.id,
-          answer: q.回答,
-          answered_by_staff_id: q.答えた人,
-          answered_at: jstToUtc(q.答えた),
-          answer_ref: "seed:立ち上げ面談",
-        }),
-      );
-    }
+    for (const q of s["7_口調とよく聞かれる質問"].よく聞かれる質問) out.push(...knowledgeRows(q, s.id));
   }
+  for (const q of seed.全店の知識 ?? []) out.push(...knowledgeRows(q, null));
   out.push("");
 
   for (const r of owner_rules) {
@@ -245,7 +260,7 @@ export function buildSeedSql(seed, { env = "demo", now = "2026-11-02T03:00:00Z" 
 function summary(seed) {
   const n = seed.stores.reduce(
     (a, s) => ({ areas: a.areas + s["2_清掃箇所"].length, faq: a.faq + s["7_口調とよく聞かれる質問"].よく聞かれる質問.length }),
-    { areas: 0, faq: 0 },
+    { areas: 0, faq: (seed.全店の知識 ?? []).length },
   );
   const staffCount = seed.people.filter((p) => p.役割 === "スタッフ").length;
   return `店舗 ${seed.stores.length} / 清掃箇所 ${n.areas} / スタッフ ${staffCount} + 運営 ${seed.people.length - staffCount} / 知識 ${n.faq} / ルール ${seed.owner_rules.length}`;
