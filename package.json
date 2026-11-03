@@ -14,7 +14,8 @@
     "deploy:demo": "wrangler deploy --env demo",
     "migrate:production": "wrangler d1 migrations apply DB --remote --env production",
     "deploy:production": "wrangler deploy --env production",
-    "replay": "tsx scripts/replay/run.ts"
+    "replay": "tsx scripts/replay/run.ts",
+    "replay:join": "tsx scripts/replay/join.ts"
   },
   "engines": {
     "node": ">=20"

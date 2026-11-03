@@ -88,3 +88,23 @@ describe("帳に積むのは再利用できる答えだけ / 休日の内訳", (
     expect(summary.holiday).toEqual({ total: 2, answered_with_source: 1, handed_to_human: 1, answered_without_source: 0 });
   });
 });
+
+describe("当時の答えの種類で一致率を分ける", () => {
+  const csv = [
+    "id,asked_at,question,answered_at,answered_by,answer,kind,off_hours,holiday,reusable",
+    "b1,2026-07-01 10:00,掃除機の紙パックはどこ?,2026-07-01 10:00,デモオーナー,流しの下の引き出しの中。,place,0,0,1",
+    "b2,2026-07-02 19:00,掃除機の紙パックはどこ?,2026-07-02 19:00,デモオーナー,流しの下の引き出しです。,place,1,0,1",
+    "b3,2026-07-04 10:00,掃除機の紙パックはどこ?,2026-07-04 10:00,デモオーナー,今から持っていきます,place,1,1,0",
+    "b4,2026-07-05 10:00,掃除機の紙パックはどこ?,,,,place,1,1,0",
+  ].join("\n");
+
+  it("再利用できる答えだけ判定し、当時は個別対応・答えなしを別に数える。営業時間外の内訳も出す", async () => {
+    const judged: string[] = [];
+    const { summary } = await replay(parseCsv(csv), { call: fakeAgent, judge: async (x) => (judged.push(x.actual), { verdict: "match", reason: "" }) });
+    expect(summary.answered_with_source).toBe(3);
+    expect(judged).toEqual(["流しの下の引き出しです。"]);
+    expect(summary).toMatchObject({ judged: 1, match: 1, match_rate: 1, situational_at_the_time: 1, no_answer_at_the_time: 1 });
+    expect(summary.off_hours).toEqual({ total: 3, answered_with_source: 3, handed_to_human: 0, answered_without_source: 0 });
+    expect(summary.holiday.total).toBe(2);
+  });
+});
