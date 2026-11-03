@@ -16,10 +16,10 @@ description: デモ用ワークスペースで撮影する場面(受付と聞き
 
 ## 状態を戻す
 
-seed は `INSERT OR IGNORE` なので、報告・検出・下書きは残る。やり直すときは demo の D1 を作り直す:
-1. Cloudflare ダッシュボード → D1 → hikitsugi-demo → 全テーブルを削除(または DB を作り直して database_id を wrangler.toml に書く)
-2. Actions → deploy-demo → Run workflow(マイグレーションと seed が当たる)
-3. 11/3 以降は祝日・土曜(休業日)に注意: 店舗ページに「休業日」が出る。休業日の場面はこれを使う
+GitHub → Actions → **reset-demo** → Run workflow。確認の欄に「demo」と入れて実行する(2〜3分)。
+demo の D1 の全テーブルを消し、マイグレーション → 架空の seed → Slack ID の結びつけ → デプロイをやり直す。
+seed の店・人・ルール1〜5・知識10件に戻り、報告・検出・ルール候補・消費の記録は消える。production には流れない。
+休業日(土曜・祝日)に注意: 店舗ページに「休業日」が出る。休業日の場面はこれを使う
 
 ## 場面1: 受付と聞き返し(0:40〜)
 
