@@ -6,9 +6,9 @@
 #   channels:history  店舗チャンネル(公開)の投稿を受け取る(message.channels)
 #   groups:history    店舗チャンネル(非公開)の投稿を受け取る(message.groups)。招かれたチャンネルだけ読める
 #   im:history        ボットへの DM を受け取る(message.im。引き継ぎ帳への質問)
-#   files:read        写真を受け取る(file_shared、files.info → url_private_download)
+#   files:read        写真を取り出す(メッセージの files にある url_private をボットのトークンで読む)
 #   chat:write        受付・聞き返し・回答をスレッドに返す、承認後の声かけを DM で送る
-#   im:write          承認後の声かけのために DM を開く(conversations.open)
+#   im:write          承認後の声かけ・オーナーへの通知を DM で送る(chat.postMessage にメンバーID を渡す。demo で通した構成のまま残す)
 # groups:read は入れない。チャンネルの一覧・名前・メンバーを読む API(conversations.info / list / members)のための
 # スコープで、このアプリは呼ばない。プライベートチャンネルの投稿を受け取るのは groups:history、返事を書くのは chat:write、
 # 写真を取り出すのは files:read で足りる(ボットがチャンネルに招かれていること)。最小のスコープにしておく
