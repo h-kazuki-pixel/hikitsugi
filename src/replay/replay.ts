@@ -1,7 +1,8 @@
 // 過去の質問の流し直し(設計書 5-5)
 //
 // 引き継ぎ帳を空の状態から始め、過去の質問を時系列で流す。各質問の時点では、それより前に
-// 人が実際に答えた内容だけを知識として持たせる(未来の答えを知らない)。本番と同じエージェント
+// 人が実際に答えた内容のうち、再利用できる答えだけを知識として持たせる(未来の答えを知らない。
+// 「今から行きます」のようなその場の対応は積まない)。本番と同じエージェント
 // (runHandoffAgent)と同じ守り(スタッフへの文はコードが組む)で、各質問を3つに分ける:
 //   出典つきで返せた / 人に回した / 出典なしで答えてしまった(構造上 0 のはず。検算する)
 // 返せたものは、当時の実際の答えと趣旨が合っているかを Claude が判定する(オーナーが抜き取りで確かめる)。
@@ -22,6 +23,10 @@ export type PastQuestion = {
   answer: string | null; // 当時の実際の答え
   kind: "place" | "procedure" | "judgment" | null;
   off_hours: boolean; // 営業時間外(土日祝・平日夜など)に来たか
+  holiday: boolean; // 休日(土日祝・運営の休業日)に来たか
+  // 帳に積む答えか。「その場の対応」(今から行きます、写真を見ての答えなど)と「答えなし」は積まない。
+  // 列がなければ、答えのある行はすべて積む(架空の sample.csv の形)
+  reusable: boolean;
 };
 
 export type Verdict = "match" | "partial" | "mismatch";
@@ -31,8 +36,11 @@ export type ReplayItem = {
   id: string;
   outcome: "answered_with_source" | "handed_to_human" | "answered_without_source";
   source_id: string | null; // 返した知識(過去の質問の id)
-  verdict: Verdict | null;
+  verdict: Verdict | null; // 当時の答えが再利用できる答えのときだけ判定する
+  // その質問に当時あった答えの種類: 再利用できる答え / その場の対応(「今から行きます」など)/ 答えなし
+  at_the_time: "reusable" | "situational" | "none";
   off_hours: boolean;
+  holiday: boolean;
   tokens: { input: number; output: number };
 };
 
@@ -42,19 +50,25 @@ export type ReplaySummary = {
   answered_with_source_off_hours: number;
   handed_to_human: number;
   answered_without_source: number; // 目標 0
-  judged: number;
+  holiday: Breakdown; // 休日に来た質問
+  off_hours: Breakdown; // 営業時間外(休日 + 平日夜)に来た質問
+  judged: number; // 返せたもののうち、当時の答えが再利用できる答えで、趣旨を判定したもの
   match: number;
   partial: number;
   mismatch: number;
   match_rate: number | null; // match / judged
+  situational_at_the_time: number; // 返せたもののうち、当時は個別対応(その場の対応)だったもの。判定しない
+  no_answer_at_the_time: number; // 返せたもののうち、当時は答えがなかったもの。判定しない
   tokens: { input: number; output: number };
 };
+
+export type Breakdown = { total: number; answered_with_source: number; handed_to_human: number; answered_without_source: number };
 
 // その時点(asOf)までに人が答えた内容だけの検索
 export function asOfSearch(past: PastQuestion[], asOf: string) {
   return async (query: string): Promise<KnowledgeHit[]> =>
     past
-      .filter((p) => p.asked_at < asOf && p.answer && p.answered_at && p.answered_at < asOf)
+      .filter((p) => p.reusable && p.asked_at < asOf && p.answer && p.answered_at && p.answered_at < asOf)
       .map((p) => ({
         id: p.id,
         source_type: "knowledge" as const,
@@ -79,25 +93,28 @@ export async function replay(
   for (const [i, q] of past.entries()) {
     const search = asOfSearch(past, q.asked_at);
     const run = await runHandoffAgent(search, { storeName: "店舗", senderName: "スタッフ", question: q.question }, deps.call);
+    const at_the_time: ReplayItem["at_the_time"] = !q.answer ? "none" : q.reusable ? "reusable" : "situational";
     let item: ReplayItem;
     if (run.decision.type === "answer") {
       const hit = run.decision.hit;
       // 検算: 返した文が、その時点で人が答えた言葉そのものか(コードが組むので必ずそうなるはず)
-      const known = past.find((p) => p.id === hit.id && p.answered_at && p.answered_at < q.asked_at);
+      const known = past.find((p) => p.id === hit.id && p.reusable && p.answered_at && p.answered_at < q.asked_at);
       const sourced = !!known && hit.answer === known.answer;
       let verdict: Verdict | null = null;
-      if (sourced && q.answer) verdict = (await deps.judge({ question: q.question, returned: answerText(hit), actual: q.answer })).verdict;
+      if (sourced && at_the_time === "reusable" && q.answer) verdict = (await deps.judge({ question: q.question, returned: answerText(hit), actual: q.answer })).verdict;
       item = {
         id: q.id,
         outcome: sourced ? "answered_with_source" : "answered_without_source",
         source_id: hit.id,
         verdict,
+        at_the_time,
         off_hours: q.off_hours,
+        holiday: q.holiday,
         tokens: { input: run.usage.input_tokens, output: run.usage.output_tokens },
       };
     } else {
       // wait(同じ質問を確認中)はこの流し直しでは起きない(過去の答えはすべて揃っている)が、出たら人に回したと数える
-      item = { id: q.id, outcome: "handed_to_human", source_id: null, verdict: null, off_hours: q.off_hours, tokens: { input: run.usage.input_tokens, output: run.usage.output_tokens } };
+      item = { id: q.id, outcome: "handed_to_human", source_id: null, verdict: null, at_the_time, off_hours: q.off_hours, holiday: q.holiday, tokens: { input: run.usage.input_tokens, output: run.usage.output_tokens } };
     }
     items.push(item);
     deps.onItem?.(item, i);
@@ -109,17 +126,27 @@ export function summarize(items: ReplayItem[]): ReplaySummary {
   const count = (f: (i: ReplayItem) => boolean) => items.filter(f).length;
   const judged = count((i) => i.verdict !== null);
   const match = count((i) => i.verdict === "match");
+  const breakdown = (f: (i: ReplayItem) => boolean): Breakdown => ({
+    total: count(f),
+    answered_with_source: count((i) => f(i) && i.outcome === "answered_with_source"),
+    handed_to_human: count((i) => f(i) && i.outcome === "handed_to_human"),
+    answered_without_source: count((i) => f(i) && i.outcome === "answered_without_source"),
+  });
   return {
     total: items.length,
     answered_with_source: count((i) => i.outcome === "answered_with_source"),
     answered_with_source_off_hours: count((i) => i.outcome === "answered_with_source" && i.off_hours),
     handed_to_human: count((i) => i.outcome === "handed_to_human"),
     answered_without_source: count((i) => i.outcome === "answered_without_source"),
+    holiday: breakdown((i) => i.holiday),
+    off_hours: breakdown((i) => i.off_hours),
     judged,
     match,
     partial: count((i) => i.verdict === "partial"),
     mismatch: count((i) => i.verdict === "mismatch"),
     match_rate: judged ? Math.round((match / judged) * 1000) / 1000 : null,
+    situational_at_the_time: count((i) => i.outcome === "answered_with_source" && i.at_the_time === "situational"),
+    no_answer_at_the_time: count((i) => i.outcome === "answered_with_source" && i.at_the_time === "none"),
     tokens: items.reduce((t, i) => ({ input: t.input + i.tokens.input, output: t.output + i.tokens.output }), { input: 0, output: 0 }),
   };
 }
@@ -155,8 +182,35 @@ export function claudeJudge(create: (p: Anthropic.MessageCreateParamsNonStreamin
   };
 }
 
-// CSV(ヘッダつき)を読む。列: id, asked_at, question, answered_at, answered_by, answer, kind, off_hours
+// CSV(ヘッダつき)を読む。列: id, asked_at, question, answered_at, answered_by, answer, kind, off_hours, holiday, reusable
+// holiday・reusable は省略できる(holiday は偽、reusable は真とみる)
 export function parseCsv(text: string): PastQuestion[] {
+  const [head, ...body] = parseCsvRows(text);
+  if (!head) return [];
+  const idx = (name: string) => head.indexOf(name);
+  const get = (r: string[], name: string) => (idx(name) >= 0 ? (r[idx(name)] ?? "").trim() : "");
+  const flag = (v: string) => ["1", "true", "yes", "はい"].includes(v.toLowerCase());
+  const iso = (v: string) => (v ? new Date(/[zZ+]/.test(v.slice(10)) ? v : `${v.replace(" ", "T")}+09:00`).toISOString() : null);
+  return body.map((r) => {
+    const kind = get(r, "kind");
+    return {
+      id: get(r, "id"),
+      asked_at: iso(get(r, "asked_at"))!,
+      question: get(r, "question"),
+      answered_at: iso(get(r, "answered_at")),
+      answered_by: get(r, "answered_by") || null,
+      answer: get(r, "answer") || null,
+      kind: kind === "place" || kind === "procedure" || kind === "judgment" ? kind : null,
+      off_hours: flag(get(r, "off_hours")),
+      holiday: flag(get(r, "holiday")),
+      reusable: idx("reusable") >= 0 ? flag(get(r, "reusable")) : true,
+    };
+  });
+}
+
+// CSV を行と欄に分ける(引用符・欄の中のカンマと改行に対応。空行は飛ばす)
+export function parseCsvRows(text: string): string[][] {
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -183,23 +237,5 @@ export function parseCsv(text: string): PastQuestion[] {
   }
   row.push(cell);
   if (row.some((x) => x !== "")) rows.push(row);
-
-  const [head, ...body] = rows;
-  if (!head) return [];
-  const idx = (name: string) => head.indexOf(name);
-  const get = (r: string[], name: string) => (idx(name) >= 0 ? (r[idx(name)] ?? "").trim() : "");
-  const iso = (v: string) => (v ? new Date(/[zZ+]/.test(v.slice(10)) ? v : `${v.replace(" ", "T")}+09:00`).toISOString() : null);
-  return body.map((r) => {
-    const kind = get(r, "kind");
-    return {
-      id: get(r, "id"),
-      asked_at: iso(get(r, "asked_at"))!,
-      question: get(r, "question"),
-      answered_at: iso(get(r, "answered_at")),
-      answered_by: get(r, "answered_by") || null,
-      answer: get(r, "answer") || null,
-      kind: kind === "place" || kind === "procedure" || kind === "judgment" ? kind : null,
-      off_hours: ["1", "true", "yes", "はい"].includes(get(r, "off_hours").toLowerCase()),
-    };
-  });
+  return rows;
 }

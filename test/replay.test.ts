@@ -61,3 +61,50 @@ describe("流し直し", () => {
     expect(summary.tokens.input).toBeGreaterThan(0);
   });
 });
+
+describe("帳に積むのは再利用できる答えだけ / 休日の内訳", () => {
+  // 架空の3件: 1件目は「その場の対応」(積まない)、2件目は再利用できる答え、3件目はどちらにも近い質問
+  const csv = [
+    "id,asked_at,question,answered_at,answered_by,answer,kind,off_hours,holiday,reusable",
+    "a1,2026-07-01 10:00,モップの替えはどこ?,2026-07-01 10:00,デモオーナー,今から持っていきます,place,0,0,0",
+    "a2,2026-07-02 10:00,掃除機の紙パックはどこ?,2026-07-02 10:00,デモオーナー,流しの下の引き出しの中。,place,0,0,1",
+    "a3,2026-07-04 13:00,モップの替えはどこ?,2026-07-04 13:00,デモオーナー,用具棚の上の段。,place,1,1,1",
+    "a4,2026-07-05 13:00,掃除機の紙パックはどこ?,,,,place,1,1,",
+  ].join("\n");
+  const small = parseCsv(csv);
+
+  it("列を読む。reusable の列がなければ積む", () => {
+    expect(small.map((r) => [r.reusable, r.holiday])).toEqual([[false, false], [true, false], [true, true], [false, true]]);
+    expect(rows.every((r) => r.reusable && !r.holiday)).toBe(true);
+  });
+
+  it("その場の対応は知識にならない。休日の内訳を数える", async () => {
+    const hits = await asOfSearch(small, small[2]!.asked_at)("モップの替えはどこ?");
+    expect(hits.map((h) => h.id)).toEqual(["a2"]);
+    const { items, summary } = await replay(small, { call: fakeAgent, judge });
+    const by = Object.fromEntries(items.map((i) => [i.id, i]));
+    expect(by.a3).toMatchObject({ outcome: "handed_to_human" }); // a1 の答えは積んでいない
+    expect(by.a4).toMatchObject({ outcome: "answered_with_source", source_id: "a2" });
+    expect(summary.holiday).toEqual({ total: 2, answered_with_source: 1, handed_to_human: 1, answered_without_source: 0 });
+  });
+});
+
+describe("当時の答えの種類で一致率を分ける", () => {
+  const csv = [
+    "id,asked_at,question,answered_at,answered_by,answer,kind,off_hours,holiday,reusable",
+    "b1,2026-07-01 10:00,掃除機の紙パックはどこ?,2026-07-01 10:00,デモオーナー,流しの下の引き出しの中。,place,0,0,1",
+    "b2,2026-07-02 19:00,掃除機の紙パックはどこ?,2026-07-02 19:00,デモオーナー,流しの下の引き出しです。,place,1,0,1",
+    "b3,2026-07-04 10:00,掃除機の紙パックはどこ?,2026-07-04 10:00,デモオーナー,今から持っていきます,place,1,1,0",
+    "b4,2026-07-05 10:00,掃除機の紙パックはどこ?,,,,place,1,1,0",
+  ].join("\n");
+
+  it("再利用できる答えだけ判定し、当時は個別対応・答えなしを別に数える。営業時間外の内訳も出す", async () => {
+    const judged: string[] = [];
+    const { summary } = await replay(parseCsv(csv), { call: fakeAgent, judge: async (x) => (judged.push(x.actual), { verdict: "match", reason: "" }) });
+    expect(summary.answered_with_source).toBe(3);
+    expect(judged).toEqual(["流しの下の引き出しです。"]);
+    expect(summary).toMatchObject({ judged: 1, match: 1, match_rate: 1, situational_at_the_time: 1, no_answer_at_the_time: 1 });
+    expect(summary.off_hours).toEqual({ total: 3, answered_with_source: 3, handed_to_human: 0, answered_without_source: 0 });
+    expect(summary.holiday.total).toBe(2);
+  });
+});
