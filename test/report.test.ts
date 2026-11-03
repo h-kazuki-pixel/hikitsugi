@@ -177,6 +177,19 @@ describe("報告の処理", () => {
     expect(later).toMatchObject({ kind: "report", mergedInto: null });
   });
 
+  it("テスト用の店舗チャンネル(運営の投稿も報告として受ける印)だけ、オーナーの投稿も報告として受ける", async () => {
+    // 共有のローカル D1 を汚さないよう、ほかのテストが使わない店(薬院店)と日付(30日後)にし、印は戻す
+    await db().prepare("UPDATE stores SET accepts_operator_posts = 1 WHERE id = 'yakuin'").run();
+    try {
+      const { deps, inputs } = fakes({ ...REPORT, areas: ["yakuin_toilet"] });
+      const ev = toReportEvent(msg({ user: "U_DEMO_OWNER", channel: "C_DEMO_YAKUIN", ts: ts(30 * 86_400), text: "テスト: トイレ終わりました" }))!;
+      expect(await processReportEvent(db(), ev, deps)).toMatchObject({ kind: "report" });
+      expect(inputs).toHaveLength(1);
+    } finally {
+      await db().prepare("UPDATE stores SET accepts_operator_posts = 0 WHERE id = 'yakuin'").run();
+    }
+  });
+
   it("オーナー・副担当の投稿は報告として数えない(Claude も呼ばない)", async () => {
     const { deps, inputs } = fakes(REPORT);
     expect(await processReportEvent(db(), toReportEvent(msg({ user: "U_DEMO_OWNER", ts: ts(900) }))!, deps)).toEqual({ kind: "ignored", reason: "operator_post" });

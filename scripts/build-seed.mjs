@@ -182,6 +182,8 @@ export function buildSeedSql(seed, { env = "demo", now = "2026-11-02T03:00:00Z" 
         closed_day_policy: c1.休業日.決め方,
         slack_channel_id: c4.slackチャンネル,
         photo_required: c4.写真を必須にする,
+        // テスト用の店舗チャンネルだけ true(オーナー・副担当の投稿も報告として受ける)。省略すると false
+        accepts_operator_posts: c4.運営の投稿も報告として受ける === true,
         lock_type: code(LOCK, c5.鍵の種類, "鍵の種類"),
         lock_has_staff_ids: c5.スタッフごとの解錠IDがある,
         lock_shared_with_members: c5.会員も同じ鍵で入る,
