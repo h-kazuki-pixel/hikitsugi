@@ -92,7 +92,7 @@ export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: Js
       {isDemo && <DemoPanel storeId={store.id} staff={props.demoStaff ?? []} />}
 
       <p class="meta" style="margin-top:12px">
-        <a href="/usage">Claude の消費</a>
+        <a href="/stats">実稼働の数字</a> <a href="/usage">Claude の消費</a>
       </p>
     </Layout>
   );

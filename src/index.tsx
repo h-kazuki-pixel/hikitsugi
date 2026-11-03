@@ -17,6 +17,7 @@ import { stores } from "./routes/stores";
 import { drafts } from "./routes/drafts";
 import { demo } from "./routes/demo";
 import { usage } from "./routes/usage";
+import { stats } from "./routes/stats";
 import { NotFoundPage } from "./views/StorePage";
 
 export const app = new Hono<{ Bindings: Env }>();
@@ -28,6 +29,7 @@ app.route("/", stores);
 app.route("/", drafts);
 app.route("/", demo);
 app.route("/", usage);
+app.route("/", stats);
 app.notFound((c) => c.html(<NotFoundPage />, 404));
 
 // 引き継ぎ帳のエージェントが使う Claude 呼び出し(テストでは差し替える)

@@ -10,6 +10,7 @@
 
 import type { ReportEvent } from "../channels/report-event";
 import { jstDate } from "../lib/time";
+import { recordCount } from "../lib/counts";
 import { recordUsage } from "../lib/usage";
 import type { SlackClient } from "../slack/api";
 import { ensureBoard, markDone, markNeedsRecheck, resyncBoard } from "./board";
@@ -425,16 +426,18 @@ async function settleRecheck(
     .prepare("SELECT area_id FROM board_items WHERE store_id = ? AND date = ? AND status = 'needs_recheck' AND done_report_id = ?")
     .bind(store.id, boardDate, rootId)
     .all<{ area_id: string }>();
-  const setDone = (areaIds: string[], basis: "staff_word" | "photo") =>
-    areaIds.length
-      ? db
-          .prepare(
-            `UPDATE board_items SET status = 'done', recheck_note = NULL, done_basis = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-              WHERE store_id = ? AND date = ? AND status = 'needs_recheck' AND done_report_id = ? AND area_id IN (${areaIds.map(() => "?").join(", ")})`,
-          )
-          .bind(basis, store.id, boardDate, rootId, ...areaIds)
-          .run()
-      : Promise.resolve();
+  const setDone = async (areaIds: string[], basis: "staff_word" | "photo") => {
+    if (!areaIds.length) return;
+    await db
+      .prepare(
+        `UPDATE board_items SET status = 'done', recheck_note = NULL, done_basis = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+          WHERE store_id = ? AND date = ? AND status = 'needs_recheck' AND done_report_id = ? AND area_id IN (${areaIds.map(() => "?").join(", ")})`,
+      )
+      .bind(basis, store.id, boardDate, rootId, ...areaIds)
+      .run();
+    // 本人が直した件数を数える(根拠つき。設計書 11章)
+    for (const a of areaIds) await recordCount(db, { kind: "recheck_cleared", store_id: store.id, board_date: boardDate, area_id: a, basis, ref: rootId });
+  };
   if (pending.length && ev.images.length) {
     const images: { base64: string; mediaType: string }[] = [];
     for (const img of ev.images.slice(0, MAX_IMAGES)) {
