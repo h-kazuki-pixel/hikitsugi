@@ -68,6 +68,7 @@ describe("POST /stores/:id/rules", () => {
     expect(html).toContain("この読み取りで有効にしますか");
     expect(html).toContain("天神店のトイレの報告がない日が2日続いたら、副担当に定時で知らせる");
     expect(html).toContain("知らせる / 宛先: 副担当 / 定時");
+    expect(html).toContain("有効にしない"); // 引き継ぎ帳の候補の「引き継ぎ帳の答えだけにする」ではない(ほかのテストの候補が同じページに出ることがあるので、無いことは確かめない)
 
     await app.request(`/rules/${r!.id}/approve`, form({ store: "tenjin" }), env());
     html = await (await app.request("/stores/tenjin", {}, env())).text();
