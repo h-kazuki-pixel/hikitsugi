@@ -1,7 +1,8 @@
 // 過去の質問の流し直し(設計書 5-5)
 //
 // 引き継ぎ帳を空の状態から始め、過去の質問を時系列で流す。各質問の時点では、それより前に
-// 人が実際に答えた内容だけを知識として持たせる(未来の答えを知らない)。本番と同じエージェント
+// 人が実際に答えた内容のうち、再利用できる答えだけを知識として持たせる(未来の答えを知らない。
+// 「今から行きます」のようなその場の対応は積まない)。本番と同じエージェント
 // (runHandoffAgent)と同じ守り(スタッフへの文はコードが組む)で、各質問を3つに分ける:
 //   出典つきで返せた / 人に回した / 出典なしで答えてしまった(構造上 0 のはず。検算する)
 // 返せたものは、当時の実際の答えと趣旨が合っているかを Claude が判定する(オーナーが抜き取りで確かめる)。
@@ -22,6 +23,10 @@ export type PastQuestion = {
   answer: string | null; // 当時の実際の答え
   kind: "place" | "procedure" | "judgment" | null;
   off_hours: boolean; // 営業時間外(土日祝・平日夜など)に来たか
+  holiday: boolean; // 休日(土日祝・運営の休業日)に来たか
+  // 帳に積む答えか。「その場の対応」(今から行きます、写真を見ての答えなど)と「答えなし」は積まない。
+  // 列がなければ、答えのある行はすべて積む(架空の sample.csv の形)
+  reusable: boolean;
 };
 
 export type Verdict = "match" | "partial" | "mismatch";
@@ -33,6 +38,7 @@ export type ReplayItem = {
   source_id: string | null; // 返した知識(過去の質問の id)
   verdict: Verdict | null;
   off_hours: boolean;
+  holiday: boolean;
   tokens: { input: number; output: number };
 };
 
@@ -42,6 +48,7 @@ export type ReplaySummary = {
   answered_with_source_off_hours: number;
   handed_to_human: number;
   answered_without_source: number; // 目標 0
+  holiday: { total: number; answered_with_source: number; handed_to_human: number; answered_without_source: number };
   judged: number;
   match: number;
   partial: number;
@@ -54,7 +61,7 @@ export type ReplaySummary = {
 export function asOfSearch(past: PastQuestion[], asOf: string) {
   return async (query: string): Promise<KnowledgeHit[]> =>
     past
-      .filter((p) => p.asked_at < asOf && p.answer && p.answered_at && p.answered_at < asOf)
+      .filter((p) => p.reusable && p.asked_at < asOf && p.answer && p.answered_at && p.answered_at < asOf)
       .map((p) => ({
         id: p.id,
         source_type: "knowledge" as const,
@@ -83,7 +90,7 @@ export async function replay(
     if (run.decision.type === "answer") {
       const hit = run.decision.hit;
       // 検算: 返した文が、その時点で人が答えた言葉そのものか(コードが組むので必ずそうなるはず)
-      const known = past.find((p) => p.id === hit.id && p.answered_at && p.answered_at < q.asked_at);
+      const known = past.find((p) => p.id === hit.id && p.reusable && p.answered_at && p.answered_at < q.asked_at);
       const sourced = !!known && hit.answer === known.answer;
       let verdict: Verdict | null = null;
       if (sourced && q.answer) verdict = (await deps.judge({ question: q.question, returned: answerText(hit), actual: q.answer })).verdict;
@@ -93,11 +100,12 @@ export async function replay(
         source_id: hit.id,
         verdict,
         off_hours: q.off_hours,
+        holiday: q.holiday,
         tokens: { input: run.usage.input_tokens, output: run.usage.output_tokens },
       };
     } else {
       // wait(同じ質問を確認中)はこの流し直しでは起きない(過去の答えはすべて揃っている)が、出たら人に回したと数える
-      item = { id: q.id, outcome: "handed_to_human", source_id: null, verdict: null, off_hours: q.off_hours, tokens: { input: run.usage.input_tokens, output: run.usage.output_tokens } };
+      item = { id: q.id, outcome: "handed_to_human", source_id: null, verdict: null, off_hours: q.off_hours, holiday: q.holiday, tokens: { input: run.usage.input_tokens, output: run.usage.output_tokens } };
     }
     items.push(item);
     deps.onItem?.(item, i);
@@ -115,6 +123,12 @@ export function summarize(items: ReplayItem[]): ReplaySummary {
     answered_with_source_off_hours: count((i) => i.outcome === "answered_with_source" && i.off_hours),
     handed_to_human: count((i) => i.outcome === "handed_to_human"),
     answered_without_source: count((i) => i.outcome === "answered_without_source"),
+    holiday: {
+      total: count((i) => i.holiday),
+      answered_with_source: count((i) => i.holiday && i.outcome === "answered_with_source"),
+      handed_to_human: count((i) => i.holiday && i.outcome === "handed_to_human"),
+      answered_without_source: count((i) => i.holiday && i.outcome === "answered_without_source"),
+    },
     judged,
     match,
     partial: count((i) => i.verdict === "partial"),
@@ -155,7 +169,8 @@ export function claudeJudge(create: (p: Anthropic.MessageCreateParamsNonStreamin
   };
 }
 
-// CSV(ヘッダつき)を読む。列: id, asked_at, question, answered_at, answered_by, answer, kind, off_hours
+// CSV(ヘッダつき)を読む。列: id, asked_at, question, answered_at, answered_by, answer, kind, off_hours, holiday, reusable
+// holiday・reusable は省略できる(holiday は偽、reusable は真とみる)
 export function parseCsv(text: string): PastQuestion[] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -188,6 +203,7 @@ export function parseCsv(text: string): PastQuestion[] {
   if (!head) return [];
   const idx = (name: string) => head.indexOf(name);
   const get = (r: string[], name: string) => (idx(name) >= 0 ? (r[idx(name)] ?? "").trim() : "");
+  const flag = (v: string) => ["1", "true", "yes", "はい"].includes(v.toLowerCase());
   const iso = (v: string) => (v ? new Date(/[zZ+]/.test(v.slice(10)) ? v : `${v.replace(" ", "T")}+09:00`).toISOString() : null);
   return body.map((r) => {
     const kind = get(r, "kind");
@@ -199,7 +215,9 @@ export function parseCsv(text: string): PastQuestion[] {
       answered_by: get(r, "answered_by") || null,
       answer: get(r, "answer") || null,
       kind: kind === "place" || kind === "procedure" || kind === "judgment" ? kind : null,
-      off_hours: ["1", "true", "yes", "はい"].includes(get(r, "off_hours").toLowerCase()),
+      off_hours: flag(get(r, "off_hours")),
+      holiday: flag(get(r, "holiday")),
+      reusable: idx("reusable") >= 0 ? flag(get(r, "reusable")) : true,
     };
   });
 }
