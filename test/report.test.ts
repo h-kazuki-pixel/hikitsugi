@@ -185,6 +185,11 @@ describe("報告の処理", () => {
       const ev = toReportEvent(msg({ user: "U_DEMO_OWNER", channel: "C_DEMO_YAKUIN", ts: ts(30 * 86_400), text: "テスト: トイレ終わりました" }))!;
       expect(await processReportEvent(db(), ev, deps)).toMatchObject({ kind: "report" });
       expect(inputs).toHaveLength(1);
+      // 質問も引き継ぎ帳に回る(11/4 実機: テスト用チャンネルでオーナーの質問に何も返らなかった)
+      const q = fakes({ categories: ["question"], areas: [], reply: "" });
+      const qev = toReportEvent(msg({ user: "U_DEMO_OWNER", channel: "C_DEMO_YAKUIN", ts: ts(30 * 86_400 + 60), text: "テスト: 傘を貸してほしいと言われた" }))!;
+      expect(await processReportEvent(db(), qev, q.deps)).toMatchObject({ kind: "not_report", question: { kind: "question", decision: "ask_owner", replied: true } });
+      expect(q.posted[0]).toMatchObject({ channel: "C_DEMO_YAKUIN", thread: ts(30 * 86_400 + 60) });
     } finally {
       await db().prepare("UPDATE stores SET accepts_operator_posts = 0 WHERE id = 'yakuin'").run();
     }
