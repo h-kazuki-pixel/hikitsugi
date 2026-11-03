@@ -354,6 +354,11 @@ describe("汚れが残っている写真は完了にしない(11/3 実機: 紙�
     const clean = fakes({ ...DIRTY, leftover: [] }, { areas: ["tenjin_toilet", "tenjin_trash"], leftover_cleared: true, reply: "ありがとう!完了で記録しました。" });
     await processReportEvent(db(), toReportEvent(msg({ ...photo, thread_ts: wed(0), ts: wed(120), text: "拾いました" }))!, clean.deps);
     expect(await db().prepare("SELECT status, done_basis FROM board_items WHERE id = 'tenjin:2026-11-11:tenjin_toilet'").first()).toEqual({ status: "done", done_basis: "photo" });
+    // 数えるための記録: 要確認になったことと、写真で直したことが1件ずつ残る(ボードは上書きされても数えられる)
+    const { results: events } = await db()
+      .prepare("SELECT kind, basis FROM count_events WHERE store_id = 'tenjin' AND board_date = '2026-11-11' AND area_id = 'tenjin_toilet' ORDER BY rowid")
+      .all();
+    expect(events).toEqual([{ kind: "recheck_flagged", basis: null }, { kind: "recheck_cleared", basis: "photo" }]);
     expect(clean.posted.at(-1)!.text).toBe("ありがとう!完了で記録しました。");
 
     // 2件目(翌日): 要確認 → 写真つきの返事で、まだ紙くずが見える

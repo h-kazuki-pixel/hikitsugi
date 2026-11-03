@@ -1,4 +1,6 @@
 // 日次ボード(設計書 6章: 完了 / 未清掃 / 繰り越し / 対応者不在)
+
+import { recordCount } from "../lib/counts";
 //
 // その日のボードは、朝の定時か、その日最初の報告が届いた時点で、店舗の清掃箇所から作る(何度呼んでも同じ)。
 // 報告が届いたら、構造化で判定した箇所を「完了」にする。完了にした報告(畳み込み先)を結んでおく。
@@ -20,6 +22,11 @@ export async function ensureBoard(db: D1Database, storeId: string, date: string)
 export async function markNeedsRecheck(db: D1Database, storeId: string, date: string, items: { area: string; what: string }[], reportId: string): Promise<number> {
   let n = 0;
   for (const it of items) {
+    // 数えるのは、新しく要確認になったときだけ(もとから要確認の箇所に、汚れが残った写真が重なっても1件)
+    const before = await db
+      .prepare("SELECT status FROM board_items WHERE store_id = ? AND date = ? AND area_id = ?")
+      .bind(storeId, date, it.area)
+      .first<{ status: string }>();
     const res = await db
       .prepare(
         `UPDATE board_items
@@ -29,6 +36,9 @@ export async function markNeedsRecheck(db: D1Database, storeId: string, date: st
       .bind(reportId, it.what, storeId, date, it.area)
       .run();
     n += res.meta.changes ?? 0;
+    if ((res.meta.changes ?? 0) > 0 && before?.status !== "needs_recheck") {
+      await recordCount(db, { kind: "recheck_flagged", store_id: storeId, board_date: date, area_id: it.area, ref: reportId });
+    }
   }
   return n;
 }
@@ -43,6 +53,15 @@ export async function markDone(
 ): Promise<number> {
   if (areaIds.length === 0) return 0;
   const placeholders = areaIds.map(() => "?").join(", ");
+  // 要確認の箇所が、あとの報告で完了になったら数える(keepRecheck のときは要確認を触らない)
+  const rechecked = opts.keepRecheck
+    ? []
+    : (
+        await db
+          .prepare(`SELECT area_id FROM board_items WHERE store_id = ? AND date = ? AND status = 'needs_recheck' AND area_id IN (${placeholders})`)
+          .bind(storeId, date, ...areaIds)
+          .all<{ area_id: string }>()
+      ).results;
   const res = await db
     .prepare(
       `UPDATE board_items
@@ -51,6 +70,7 @@ export async function markDone(
     )
     .bind(reportId, storeId, date, ...areaIds)
     .run();
+  for (const r of rechecked) await recordCount(db, { kind: "recheck_cleared", store_id: storeId, board_date: date, area_id: r.area_id, basis: "report", ref: reportId });
   return res.meta.changes ?? 0;
 }
 

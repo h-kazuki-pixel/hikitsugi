@@ -9,6 +9,7 @@
 
 import type { ReportEvent } from "../channels/report-event";
 import { jstDate } from "../lib/time";
+import { recordCount } from "../lib/counts";
 import { recordUsage } from "../lib/usage";
 import type { SlackClient } from "../slack/api";
 import { isClosedDay } from "../views/StorePage";
@@ -80,6 +81,7 @@ export async function handleQuestion(
 
   const d = run.decision;
   if (d.type === "answer") {
+    await recordCount(db, { kind: "handoff_answered", store_id: store?.id ?? null, ref: d.hit.id });
     const replied = await reply(answerText(d.hit));
     return { kind: "question", decision: "answer", knowledgeId: d.hit.id, replied, ownerAsked: false };
   }
@@ -89,6 +91,7 @@ export async function handleQuestion(
       .prepare("INSERT OR IGNORE INTO knowledge_waiters (id, knowledge_id, staff_id, channel_ref, message_ref) VALUES (?, ?, ?, ?, ?)")
       .bind(deps.newId(), d.hit.id, ctx.sender.id, ev.channelRef, ev.messageRef)
       .run();
+    await recordCount(db, { kind: "handoff_waited", store_id: store?.id ?? null, ref: d.hit.id });
     const replied = await reply(closed ? `${TEXT.waiting}\n${TEXT.closed}` : TEXT.waiting);
     return { kind: "question", decision: "wait", knowledgeId: d.hit.id, replied, ownerAsked: false };
   }
@@ -102,6 +105,7 @@ export async function handleQuestion(
     )
     .bind(knowledgeId, store?.id ?? null, ev.text, d.kind, ctx.sender.id, ev.sentAt, ev.messageRef, ev.channelRef)
     .run();
+  await recordCount(db, { kind: "handoff_asked", store_id: store?.id ?? null, ref: knowledgeId });
   const replied = await reply(closed ? `${TEXT.asking}\n${TEXT.closed}` : TEXT.asking);
 
   const owner = await db
