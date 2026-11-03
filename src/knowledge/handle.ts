@@ -49,9 +49,10 @@ export async function handleQuestion(
   db: D1Database,
   ev: ReportEvent,
   deps: KnowledgeDeps,
-  ctx: { store: Store | null; sender: Person | null },
+  // acceptsOperatorPosts: テスト用の店舗チャンネル(運営の投稿も報告として受ける店)では、オーナーの質問も受ける
+  ctx: { store: Store | null; sender: Person | null; acceptsOperatorPosts?: boolean },
 ): Promise<QuestionOutcome> {
-  if (!ctx.sender || ctx.sender.role === "owner") return { kind: "ignored", reason: "not_staff_question" };
+  if (!ctx.sender || (ctx.sender.role === "owner" && !ctx.acceptsOperatorPosts)) return { kind: "ignored", reason: "not_staff_question" };
 
   // キューの再配達で同じ質問を二度オーナーに聞かない
   const seen = await db

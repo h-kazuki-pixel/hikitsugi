@@ -151,7 +151,11 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   // 質問は引き継ぎ帳へ(報告と質問の両方に当たる投稿は両方)
   const askQuestion = async () =>
     result.categories.includes("question")
-      ? handleQuestion(db, ev, { slack: deps.slack, agent: deps.agent, draftRule: deps.draftRule, newId }, { store: await storeRow(db, store.id), sender: await lookupPerson(db, ev.senderRef) })
+      ? handleQuestion(db, ev, { slack: deps.slack, agent: deps.agent, draftRule: deps.draftRule, newId }, {
+          store: await storeRow(db, store.id),
+          sender: await lookupPerson(db, ev.senderRef),
+          acceptsOperatorPosts: !!store.accepts_operator_posts,
+        })
       : undefined;
 
   if (!isReport) {
