@@ -1,0 +1,48 @@
+# 実店舗のワークスペースの Slack アプリ(hikitsugi)
+# api.slack.com/apps → Create New App → From an app manifest に貼る。手順は README「実稼働の手順」
+#
+# demo のアプリ(slack/manifest.demo.yaml)とはワークスペースごと別にする(撮影に実データが映る事故を防ぐ)。
+# スコープは demo と同じもの(設計書 7章)に、非公開チャンネルの2つを足す:
+#   channels:history  店舗チャンネル(公開)の投稿を受け取る(message.channels)
+#   groups:history    店舗チャンネル(非公開)の投稿を受け取る(message.groups)。招かれたチャンネルだけ読める
+#   im:history        ボットへの DM を受け取る(message.im。引き継ぎ帳への質問)
+#   files:read        写真を受け取る(file_shared、files.info → url_private_download)
+#   chat:write        受付・聞き返し・回答をスレッドに返す、承認後の声かけを DM で送る
+#   im:write          承認後の声かけのために DM を開く(conversations.open)
+# Request URL は production の Worker。/slack/events は Cloudflare Access を通さない(Bypass)。Slack の署名で検証する
+
+display_information:
+  name: hikitsugi
+  description: 無人自習室の清掃報告を受け付け、現場の知識を引き継ぐ
+  background_color: "#2f6f5e"
+
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: hikitsugi
+    always_online: true
+
+oauth_config:
+  scopes:
+    bot:
+      - channels:history
+      - groups:history
+      - im:history
+      - files:read
+      - chat:write
+      - im:write
+
+settings:
+  event_subscriptions:
+    request_url: https://hikitsugi-production.h-kazuki.workers.dev/slack/events
+    bot_events:
+      - message.channels
+      - message.groups
+      - message.im
+      - file_shared
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
