@@ -91,7 +91,7 @@ export function RulesSection(props: { storeId: string; rules: RuleRow[] }) {
                   </form>
                   <form method="post" action={`/rules/${r.id}/reject`}>
                     <input type="hidden" name="store" value={props.storeId} />
-                    <button type="submit">引き継ぎ帳の答えだけにする</button>
+                    <button type="submit">{r.origin === "knowledge" ? "引き継ぎ帳の答えだけにする" : "有効にしない"}</button>
                   </form>
                 </div>
               </li>
