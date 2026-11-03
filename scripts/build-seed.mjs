@@ -1,14 +1,20 @@
 #!/usr/bin/env node
-// seed/demo.mjs(仕様 1章の7つの塊)を検証し、D1 に流す SQL(seed/demo.sql)を作る。
+// 店舗の seed(仕様 1章の7つの塊)を検証し、D1 に流す SQL を作る。
 //
 // - 何度流しても同じ結果になるよう INSERT OR IGNORE にする(既存の行は上書きしない)
-// - 架空データであることを形で確かめる(Slack ID は U_DEMO_ / C_DEMO_、解錠ID は demo-lock-)
 // - 引き継ぎ帳の初期知識は、出典(誰が・いつ答えたか)のないものを弾く
+// - demo: seed/demo.mjs(架空)→ seed/demo.sql。架空データであることを形で確かめる
+//   (Slack ID は U_DEMO_ / C_DEMO_、解錠ID は demo-lock-)
+// - production: 実店舗の seed(JSON。形は seed/demo.mjs と同じ)→ SQL。実データなので、リポジトリに置かない。
+//   CI では GitHub の Environment production の Secret「PRODUCTION_SEED」から読む。
+//   架空の形(U_DEMO_ など)が混ざっていたら止める。出力先は private/ かリポジトリの外だけ
 //
-// 使い方: node scripts/build-seed.mjs [出力先(既定 seed/demo.sql)]
+// 使い方:
+//   node scripts/build-seed.mjs [出力先(既定 seed/demo.sql)]
+//   node scripts/build-seed.mjs --production <実店舗の seed の JSON> <出力先>
 
-import { writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -64,8 +70,13 @@ export function jstToUtc(s) {
   return new Date(Date.UTC(y, mo - 1, d, h - 9, mi)).toISOString().replace(".000Z", "Z");
 }
 
-export function validate({ people, stores, owner_rules, 運営の設定 }) {
+const DEMO_SHAPE = /U_DEMO_|C_DEMO_|demo-lock-/;
+const REAL_USER = /^[UW][A-Z0-9]{8,12}$/;
+const REAL_CHANNEL = /^[CG][A-Z0-9]{8,12}$/;
+
+export function validate({ people, stores, owner_rules, 運営の設定 }, { env = "demo" } = {}) {
   const errors = [];
+  const prod = env === "production";
   if (!運営の設定) errors.push("運営の設定(塊3 のうち運営全体で決めるもの)がありません");
   const ids = new Set();
   const dup = (id) => (ids.has(id) ? errors.push(`id が重複しています: ${id}`) : ids.add(id));
@@ -74,8 +85,15 @@ export function validate({ people, stores, owner_rules, 運営の設定 }) {
 
   for (const p of people) {
     dup(p.id);
-    if (!/^U_DEMO_[A-Z0-9_]+$/.test(p.slack)) errors.push(`${p.id}: Slack ID は架空の形(U_DEMO_…)にする`);
-    if (!/^demo-lock-[a-z0-9-]+$/.test(p.解錠ID)) errors.push(`${p.id}: 解錠ID は架空の形(demo-lock-…)にする`);
+    if (prod) {
+      // 実店舗: 架空の形が混ざっていたら止める。Slack ID は実際の形。解錠ID は入室の受け口ができるまで空でよい
+      if (DEMO_SHAPE.test(`${p.slack ?? ""} ${p.解錠ID ?? ""}`)) errors.push(`${p.id}: 架空の ID(U_DEMO_・demo-lock-)が入っています`);
+      else if (p.slack != null && !REAL_USER.test(p.slack)) errors.push(`${p.id}: Slack のメンバーID の形が違います(U で始まる英大文字と数字)`);
+      if (p.解錠ID != null && (typeof p.解錠ID !== "string" || !p.解錠ID.trim())) errors.push(`${p.id}: 解錠ID は文字で書く(まだなければ null)`);
+    } else {
+      if (!/^U_DEMO_[A-Z0-9_]+$/.test(p.slack)) errors.push(`${p.id}: Slack ID は架空の形(U_DEMO_…)にする`);
+      if (!/^demo-lock-[a-z0-9-]+$/.test(p.解錠ID)) errors.push(`${p.id}: 解錠ID は架空の形(demo-lock-…)にする`);
+    }
     if (p.主な店舗 && !storeIds.has(p.主な店舗)) errors.push(`${p.id}: 主な店舗 ${p.主な店舗} がありません`);
     if (p.役割 !== "スタッフ" && p.義務の対象) errors.push(`${p.id}: オーナー・副担当は義務の対象外(仕様 3章)`);
   }
@@ -84,7 +102,11 @@ export function validate({ people, stores, owner_rules, 運営の設定 }) {
     for (const k of ["1_店舗", "2_清掃箇所", "3_スタッフ", "4_報告の手段", "5_入室記録", "6_連絡先と役割", "7_口調とよく聞かれる質問"]) {
       if (!(k in s)) errors.push(`${s.id}: 塊「${k}」がありません`);
     }
-    if (!/^C_DEMO_[A-Z0-9_]+$/.test(s["4_報告の手段"]?.slackチャンネル ?? "")) errors.push(`${s.id}: チャンネルは架空の形(C_DEMO_…)にする`);
+    const ch = s["4_報告の手段"]?.slackチャンネル ?? "";
+    if (prod) {
+      if (DEMO_SHAPE.test(ch)) errors.push(`${s.id}: 架空のチャンネル ID(C_DEMO_…)が入っています`);
+      else if (ch && !REAL_CHANNEL.test(ch)) errors.push(`${s.id}: Slack のチャンネルID の形が違います(C で始まる英大文字と数字)`);
+    } else if (!/^C_DEMO_[A-Z0-9_]+$/.test(ch)) errors.push(`${s.id}: チャンネルは架空の形(C_DEMO_…)にする`);
     for (const a of s["2_清掃箇所"] ?? []) dup(a.id);
     for (const m of s["3_スタッフ"]?.在籍 ?? []) if (!personIds.has(m)) errors.push(`${s.id}: 在籍 ${m} が名簿にいません`);
     const roles = s["6_連絡先と役割"] ?? {};
@@ -104,13 +126,18 @@ export function validate({ people, stores, owner_rules, 運営の設定 }) {
     nos.add(r.no);
     if (r.店舗 && !storeIds.has(r.店舗)) errors.push(`ルール${r.no}: 店舗 ${r.店舗} がありません`);
   }
-  if (errors.length) throw new Error("seed が不正です:\n- " + errors.join("\n- "));
+  if (errors.length) throw Object.assign(new Error("seed が不正です:\n- " + errors.join("\n- ")), { seedErrors: errors });
 }
 
-export function buildSeedSql(seed) {
-  validate(seed);
+export function buildSeedSql(seed, { env = "demo", now = "2026-11-02T03:00:00Z" } = {}) {
+  validate(seed, { env });
   const { people, stores, owner_rules, 運営の設定: org } = seed;
-  const out = ["-- seed/demo.mjs から生成(npm run seed:build)。手で編集しない。すべて架空データ", ""];
+  const out = [
+    env === "production"
+      ? "-- 実店舗の seed から生成。実データなのでコミットしない・ログに出さない"
+      : "-- seed/demo.mjs から生成(npm run seed:build)。手で編集しない。すべて架空データ",
+    "",
+  ];
 
   out.push(
     insert("org_settings", {
@@ -158,8 +185,8 @@ export function buildSeedSql(seed) {
         id: p.id,
         display_name: p.呼び名,
         aliases: p.別名,
-        slack_user_id: p.slack,
-        unlock_id: p.解錠ID,
+        slack_user_id: p.slack ?? null,
+        unlock_id: p.解錠ID ?? null,
         is_obligated: p.義務の対象,
         role: code(ROLE, p.役割, "役割"),
         home_store_id: p.主な店舗,
@@ -208,25 +235,66 @@ export function buildSeedSql(seed) {
         urgency: code(URGENCY, r.緊急度, "緊急度"),
         origin: "interview",
         status: "active",
-        activated_at: "2026-11-02T03:00:00Z",
+        activated_at: now,
       }),
     );
   }
   return out.join("\n") + "\n";
 }
 
-async function main() {
-  const seed = await import(pathToFileURL(join(ROOT, "seed", "demo.mjs")).href);
-  const target = resolve(process.argv[2] ?? join(ROOT, "seed", "demo.sql"));
-  writeFileSync(target, buildSeedSql(seed));
+function summary(seed) {
   const n = seed.stores.reduce(
     (a, s) => ({ areas: a.areas + s["2_清掃箇所"].length, faq: a.faq + s["7_口調とよく聞かれる質問"].よく聞かれる質問.length }),
     { areas: 0, faq: 0 },
   );
   const staffCount = seed.people.filter((p) => p.役割 === "スタッフ").length;
-  console.log(
-    `seed を作りました: ${target}(店舗 ${seed.stores.length} / 清掃箇所 ${n.areas} / スタッフ ${staffCount} + 運営 ${seed.people.length - staffCount} / 知識 ${n.faq} / ルール ${seed.owner_rules.length})`,
-  );
+  return `店舗 ${seed.stores.length} / 清掃箇所 ${n.areas} / スタッフ ${staffCount} + 運営 ${seed.people.length - staffCount} / 知識 ${n.faq} / ルール ${seed.owner_rules.length}`;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) await main();
+// 実データの SQL を書いてよい場所: private/ の中か、リポジトリの外(CI の一時ディレクトリなど)
+function allowedProductionOut(target) {
+  const rel = relative(ROOT, target);
+  const outside = rel.startsWith("..") || isAbsolute(rel);
+  return outside || rel.split(sep)[0] === "private";
+}
+
+async function main() {
+  if (process.argv[2] === "--production") {
+    // 公開リポジトリの Actions のログは誰でも読める。不正なときも、件数だけ出して中身(ID・名前)は出さない。
+    // 手元(private/)で中身を見たいときは --verbose を付ける
+    const verbose = process.argv.includes("--verbose");
+    const [input, output] = process.argv.slice(3).filter((a) => a !== "--verbose");
+    if (!input || !output) throw new Error("使い方: node scripts/build-seed.mjs --production <実店舗の seed の JSON> <出力先>");
+    const target = resolve(output);
+    if (!allowedProductionOut(target)) throw new Error("実店舗の SQL は private/ の中かリポジトリの外に書いてください(実データをコミットしないため)");
+    let seed;
+    try {
+      seed = JSON.parse(readFileSync(input, "utf8"));
+    } catch {
+      // 中身はログに出さない
+      throw new Error("実店舗の seed が JSON として読めません(Secret PRODUCTION_SEED の貼り付けを確かめてください)");
+    }
+    let sqlText;
+    try {
+      sqlText = buildSeedSql(seed, { env: "production", now: new Date().toISOString().replace(/\.\d{3}Z$/, "Z") });
+    } catch (e) {
+      if (verbose || !e.seedErrors) throw e;
+      throw new Error(`実店舗の seed が不正です(${e.seedErrors.length}件)。ログに中身を出さないため、詳しくは private/ で --verbose を付けて確かめてください`);
+    }
+    writeFileSync(target, sqlText);
+    console.log(`実店舗の seed を作りました(${summary(seed)})`);
+    return;
+  }
+  const seed = await import(pathToFileURL(join(ROOT, "seed", "demo.mjs")).href);
+  const target = resolve(process.argv[2] ?? join(ROOT, "seed", "demo.sql"));
+  writeFileSync(target, buildSeedSql(seed));
+  console.log(`seed を作りました: ${target}(${summary(seed)})`);
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // 失敗したときは文だけを出す(スタックや中身は出さない)
+  await main().catch((e) => {
+    console.error(e.message);
+    process.exit(1);
+  });
+}

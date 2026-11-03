@@ -1,6 +1,6 @@
 # デプロイの本体(demo / production から呼ばれる)
 #
-# 順番: D1 マイグレーション → (demo だけ)架空の seed → wrangler deploy → Worker の秘密情報 → 動作確認
+# 順番: D1 マイグレーション → (demo)架空の seed /(production)Secret の実店舗の seed → wrangler deploy → Worker の秘密情報 → 動作確認
 #
 # - Cloudflare のトークンとアカウントID はリポジトリの Secrets(CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID)
 # - Worker の秘密情報は GitHub の Environment(demo / production)ごとの Secrets に置く。
@@ -93,6 +93,26 @@ jobs:
         run: |
           node scripts/build-seed.mjs
           npx wrangler d1 execute DB --remote --env demo --file seed/demo.sql
+
+      # 実店舗の seed は、リポジトリに置かず production 環境の Secret「PRODUCTION_SEED」(JSON)から読む。
+      # 形は seed/demo.mjs と同じ(README「実稼働の手順」)。架空の形が混ざっていたら止める。
+      # INSERT OR IGNORE なので何度流しても同じ(すでにある行は変えない)。中身はログに出さない
+      - name: 実店舗の seed(production だけ。未登録なら飛ばす)
+        if: inputs.environment == 'production'
+        env:
+          PRODUCTION_SEED: ${{ secrets.PRODUCTION_SEED }}
+        run: |
+          if [ -z "$PRODUCTION_SEED" ]; then
+            echo "::notice::PRODUCTION_SEED は未登録なので飛ばしました(production)"
+            exit 0
+          fi
+          json="$RUNNER_TEMP/production-seed.json"
+          sql="$RUNNER_TEMP/production-seed.sql"
+          printf '%s' "$PRODUCTION_SEED" > "$json"
+          node scripts/build-seed.mjs --production "$json" "$sql" | tee -a "$GITHUB_STEP_SUMMARY"
+          npx wrangler d1 execute DB --remote --env production --file "$sql" > /dev/null
+          rm -f "$json" "$sql"
+          echo "実店舗の seed を production の D1 に流しました"
 
       # seed の架空の Slack ID(U_DEMO_… / C_DEMO_…)を、デモ用ワークスペースの実際の ID に結びつける。
       # 実際の ID はリポジトリに置かず、demo 環境の Secret「DEMO_SLACK_IDS」から読む(形は scripts/ci/apply-demo-slack-ids.mjs)

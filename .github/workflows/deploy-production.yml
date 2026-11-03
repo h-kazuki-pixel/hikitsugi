@@ -6,7 +6,7 @@
 # 初回だけは Access の設定(ACCESS_TEAM_DOMAIN / ACCESS_AUD)がなくてもデプロイしてよい。
 # workers.dev で Access を有効にするには Worker が先に存在している必要があるため。
 # Access の設定がない間は、コードが Webhook 以外のすべてに 403 を返すので、実店舗の画面は出ない。
-# seed は流さない(架空データを実店舗の D1 に入れない)。
+# 架空の seed は流さない(架空データを実店舗の D1 に入れない)。実店舗の seed は Secret「PRODUCTION_SEED」があれば流す。
 name: deploy-production
 
 on:

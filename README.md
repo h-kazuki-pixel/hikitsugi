@@ -183,7 +183,7 @@ seed は `INSERT OR IGNORE` なので、何度流しても同じ結果になる(
 そのあと:
 
 - RemoteLOCK の通知先の登録は、`/events/entry` が本番で 200 を返すようになってから行う(docs/07 の5)
-- 実店舗の名簿(Slack ID・解錠ID)は実データなのでリポジトリに置かない。入れ方は別途決める
+- 実店舗の名簿・店舗・ルール・知識は実データなのでリポジトリに置かない。Secret から入れる(下の「実稼働の手順」)
 
 ダッシュボードの項目名は変わることがある。見つからなければ Cloudflare のドキュメント(Workers の workers.dev と Access、Access の Self-hosted applications)を参照する。
 
@@ -209,6 +209,32 @@ seed は `INSERT OR IGNORE` なので、何度流しても同じ結果になる(
 9. **実際の Slack ID を結びつける**: seed の Slack ID は架空の形(`U_DEMO_…` / `C_DEMO_…`)なので、デモ用ワークスペースの実際の ID を Environment `demo` の Secret `DEMO_SLACK_IDS` に登録する。1行に1つ `owner=U…` `aoi=U…` `haruto=U…` `sota=U…` `tenjin=C…` `yakuin=C…` の形(使える名前は `scripts/ci/apply-demo-slack-ids.mjs`)。人の ID はプロフィール → ⋮ → メンバー ID をコピー、チャンネルの ID はチャンネル名を押した画面の一番下。登録後に deploy-demo を実行すると、seed のあとに UPDATE で結びつける。実際の ID はリポジトリにコミットしない
 
 店舗チャンネルの投稿は、署名を確かめてすぐ 200 を返し、共通の報告イベントにしてキューに積む(`src/channels/slack.ts`)。キューの中で、分類と構造化(`claude-sonnet-5-5`、写真つき、1回の呼び出し)→ 原本と版1 → 5分の畳み込み → ボードを完了に → スレッドに受付を返す(`src/report/process.ts`)。トラブルは検出事項にしてオーナーに DM で知らせる。オーナー・副担当の投稿は報告として数えない。DM の質問(引き継ぎ帳)と、聞き返しへのスレッド返事(版2)は次の段階で作る。
+
+## 実稼働の手順(実店舗)
+
+上から順に行う。どれもブラウザの操作だけで、手元でコマンドは打たない。
+
+1. **production を公開する**: 上の「production の公開手順」の1〜5。Access の Bypass には `/slack/events` と `/events/entry` の両方を入れる
+2. **実店舗のワークスペースに Slack アプリを作る**: api.slack.com/apps → Create New App → From an app manifest → 実店舗のワークスペースを選ぶ → [slack/manifest.production.yaml](slack/manifest.production.yaml) の中身を貼る → Create。Request URL の確認はこの時点で通る(Signing Secret の登録前は確認にだけ応答する)。OAuth & Permissions → Install to Workspace
+3. **Secrets を登録する**(Settings → Environments → `production` → Environment secrets)
+   | Secret 名 | 値 |
+   |---|---|
+   | `SLACK_SIGNING_SECRET` | Basic Information → App Credentials → Signing Secret |
+   | `SLACK_BOT_TOKEN` | OAuth & Permissions → Bot User OAuth Token(`xoxb-` で始まる) |
+   | `ANTHROPIC_API_KEY` | Anthropic のコンソールで作ったキー(demo と分けてよい) |
+   | `PRODUCTION_SEED` | 実店舗の seed(JSON。下の「実店舗の seed」) |
+4. **もう一度デプロイする**: Actions → deploy-production → Run workflow(確認欄に `production`)。マイグレーションのあと、`PRODUCTION_SEED` から作った SQL を production の D1 に流し、Secrets を Worker に入れる。ログとまとめに出るのは件数だけ
+5. **Slack で確かめ直す**: アプリ設定 → Event Subscriptions の Request URL で Retry を押し、Verified になること。店舗チャンネルで `/invite @hikitsugi`。オーナーの画面(production の URL、Access でログイン)に店舗とルール・知識が出ること
+
+### 実店舗の seed
+
+- 形は [seed/demo.mjs](seed/demo.mjs) と同じ(仕様 1章の7つの塊)を、JSON で書く。`people` / `運営の設定` / `stores` / `owner_rules` の4つ
+- Slack のメンバーID は `U` で始まる実際の ID、チャンネルID は `C`(非公開なら `G` のこともある)で始まる ID。架空の形(`U_DEMO_…` / `C_DEMO_…` / `demo-lock-…`)が混ざっていたら止める。解錠ID は入室の受け口ができるまで `null` でよい
+- メンバーID は、ワークスペースのオーナーなら管理画面のメンバー一覧の書き出し(CSV)にまとめて載っている。1人ずつなら、プロフィール → ⋮ → メンバー ID をコピー
+- 人・店・知識の `id` は名前にせず、`s01` のような記号にする(公開されるログに名前が出る道を残さない)
+- `INSERT OR IGNORE` なので、同じ `id` の行は2回目以降は変わらない。直したいときは `id` を変えるか、画面から直す
+- ワークフローは中身をログに出さない。不正なときも件数だけを出す(手元で確かめるときは `node scripts/build-seed.mjs --production private/production-seed.json private/production-seed.sql --verbose`)
+- Secret は1つ 48KB まで
 
 ## ローカルで動かす
 
