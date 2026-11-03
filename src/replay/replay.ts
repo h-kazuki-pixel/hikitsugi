@@ -6,6 +6,8 @@
 // (runHandoffAgent)と同じ守り(スタッフへの文はコードが組む)で、各質問を3つに分ける:
 //   出典つきで返せた / 人に回した / 出典なしで答えてしまった(構造上 0 のはず。検算する)
 // 返せたものは、当時の実際の答えと趣旨が合っているかを Claude が判定する(オーナーが抜き取りで確かめる)。
+// あわせて「帳に答えがあったはずか」を別に判定する(その時点の帳を全部見せて、そのまま答えになるものがあるか)。
+// これで、返せなかった理由を「帳になかった / 探して出てこなかった / 出てきたが選ばなかった」に分けられる。
 //
 // 実名入りの元データは実店舗用の環境(非公開)でだけ回す。公開するのは件数と割合だけ。
 // リポジトリには同じ処理を架空データつきで置く(scripts/replay/sample.csv)。
@@ -31,6 +33,8 @@ export type PastQuestion = {
 
 export type Verdict = "match" | "partial" | "mismatch";
 export type Judge = (input: { question: string; returned: string; actual: string }) => Promise<{ verdict: Verdict; reason: string }>;
+// その時点の帳(再利用できる答え)の中に、この質問のそのままの答えがあるか。あればその id、なければ null
+export type AnswerableJudge = (input: { question: string; book: { id: string; question: string; answer: string }[] }) => Promise<{ id: string | null }>;
 
 export type ReplayItem = {
   id: string;
@@ -39,6 +43,9 @@ export type ReplayItem = {
   verdict: Verdict | null; // 当時の答えが再利用できる答えのときだけ判定する
   // その質問に当時あった答えの種類: 再利用できる答え / その場の対応(「今から行きます」など)/ 答えなし
   at_the_time: "reusable" | "situational" | "none";
+  // 帳に答えがあったはずか(AnswerableJudge の判定。測っていなければ undefined)。id は答えになるはずだった知識
+  answerable?: { id: string | null };
+  shown_ids: string[]; // エージェントが検索で見た知識の id(本文は持たない)
   off_hours: boolean;
   holiday: boolean;
   tokens: { input: number; output: number };
@@ -59,16 +66,32 @@ export type ReplaySummary = {
   match_rate: number | null; // match / judged
   situational_at_the_time: number; // 返せたもののうち、当時は個別対応(その場の対応)だったもの。判定しない
   no_answer_at_the_time: number; // 返せたもののうち、当時は答えがなかったもの。判定しない
+  answerable: AnswerableSummary | null; // 帳に答えがあったはずの件数(測ったときだけ)
   tokens: { input: number; output: number };
+};
+
+export type AnswerableSummary = {
+  total: number; // 帳に答えがあったはずの質問
+  answered_with_source: number; // そのうち出典つきで返せた
+  answered_same_source: number; // そのうち、判定と同じ知識を返した
+  missed_not_shown: number; // 人に回した。答えになる知識が検索の候補に出ていなかった(探し方)
+  missed_shown: number; // 人に回した。候補には出ていたが選ばなかった(慎重すぎ)
+  answered_but_not_answerable: number; // 帳に答えがないはずなのに返した
+  holiday: { total: number; answered_with_source: number };
+  off_hours: { total: number; answered_with_source: number };
 };
 
 export type Breakdown = { total: number; answered_with_source: number; handed_to_human: number; answered_without_source: number };
 
+// その時点(asOf)の帳: それより前に人が答えた、再利用できる答え
+export function bookAt(past: PastQuestion[], asOf: string): PastQuestion[] {
+  return past.filter((p) => p.reusable && p.asked_at < asOf && p.answer && p.answered_at && p.answered_at < asOf);
+}
+
 // その時点(asOf)までに人が答えた内容だけの検索
 export function asOfSearch(past: PastQuestion[], asOf: string) {
   return async (query: string): Promise<KnowledgeHit[]> =>
-    past
-      .filter((p) => p.reusable && p.asked_at < asOf && p.answer && p.answered_at && p.answered_at < asOf)
+    bookAt(past, asOf)
       .map((p) => ({
         id: p.id,
         source_type: "knowledge" as const,
@@ -86,14 +109,30 @@ export function asOfSearch(past: PastQuestion[], asOf: string) {
 
 export async function replay(
   rows: PastQuestion[],
-  deps: { call: ModelCall; judge: Judge; onItem?: (item: ReplayItem, i: number) => void },
+  deps: { call: ModelCall; judge: Judge; answerable?: AnswerableJudge; onItem?: (item: ReplayItem, i: number) => void },
 ): Promise<{ items: ReplayItem[]; summary: ReplaySummary }> {
   const past = [...rows].sort((a, b) => a.asked_at.localeCompare(b.asked_at));
   const items: ReplayItem[] = [];
   for (const [i, q] of past.entries()) {
-    const search = asOfSearch(past, q.asked_at);
+    const base = asOfSearch(past, q.asked_at);
+    const shown = new Set<string>();
+    const search = async (query: string) => {
+      const hits = await base(query);
+      for (const h of hits) shown.add(h.id);
+      return hits;
+    };
     const run = await runHandoffAgent(search, { storeName: "店舗", senderName: "スタッフ", question: q.question }, deps.call);
     const at_the_time: ReplayItem["at_the_time"] = !q.answer ? "none" : q.reusable ? "reusable" : "situational";
+    let answerable: ReplayItem["answerable"];
+    if (deps.answerable) {
+      const book = bookAt(past, q.asked_at);
+      if (book.length === 0) answerable = { id: null };
+      else {
+        const got = await deps.answerable({ question: q.question, book: book.map((b) => ({ id: b.id, question: b.question, answer: b.answer! })) });
+        answerable = { id: got.id && book.some((b) => b.id === got.id) ? got.id : null };
+      }
+    }
+    const extra = { at_the_time, ...(answerable ? { answerable } : {}), shown_ids: [...shown], off_hours: q.off_hours, holiday: q.holiday };
     let item: ReplayItem;
     if (run.decision.type === "answer") {
       const hit = run.decision.hit;
@@ -107,14 +146,12 @@ export async function replay(
         outcome: sourced ? "answered_with_source" : "answered_without_source",
         source_id: hit.id,
         verdict,
-        at_the_time,
-        off_hours: q.off_hours,
-        holiday: q.holiday,
+        ...extra,
         tokens: { input: run.usage.input_tokens, output: run.usage.output_tokens },
       };
     } else {
       // wait(同じ質問を確認中)はこの流し直しでは起きない(過去の答えはすべて揃っている)が、出たら人に回したと数える
-      item = { id: q.id, outcome: "handed_to_human", source_id: null, verdict: null, at_the_time, off_hours: q.off_hours, holiday: q.holiday, tokens: { input: run.usage.input_tokens, output: run.usage.output_tokens } };
+      item = { id: q.id, outcome: "handed_to_human", source_id: null, verdict: null, ...extra, tokens: { input: run.usage.input_tokens, output: run.usage.output_tokens } };
     }
     items.push(item);
     deps.onItem?.(item, i);
@@ -147,7 +184,60 @@ export function summarize(items: ReplayItem[]): ReplaySummary {
     match_rate: judged ? Math.round((match / judged) * 1000) / 1000 : null,
     situational_at_the_time: count((i) => i.outcome === "answered_with_source" && i.at_the_time === "situational"),
     no_answer_at_the_time: count((i) => i.outcome === "answered_with_source" && i.at_the_time === "none"),
+    answerable: items.some((i) => i.answerable) ? summarizeAnswerable(items) : null,
     tokens: items.reduce((t, i) => ({ input: t.input + i.tokens.input, output: t.output + i.tokens.output }), { input: 0, output: 0 }),
+  };
+}
+
+function summarizeAnswerable(items: ReplayItem[]): AnswerableSummary {
+  const yes = items.filter((i) => i.answerable?.id);
+  const answered = (i: ReplayItem) => i.outcome === "answered_with_source";
+  const missed = yes.filter((i) => i.outcome === "handed_to_human");
+  return {
+    total: yes.length,
+    answered_with_source: yes.filter(answered).length,
+    answered_same_source: yes.filter((i) => answered(i) && i.source_id === i.answerable!.id).length,
+    missed_not_shown: missed.filter((i) => !i.shown_ids.includes(i.answerable!.id!)).length,
+    missed_shown: missed.filter((i) => i.shown_ids.includes(i.answerable!.id!)).length,
+    answered_but_not_answerable: items.filter((i) => i.answerable && !i.answerable.id && answered(i)).length,
+    holiday: { total: yes.filter((i) => i.holiday).length, answered_with_source: yes.filter((i) => i.holiday && answered(i)).length },
+    off_hours: { total: yes.filter((i) => i.off_hours).length, answered_with_source: yes.filter((i) => i.off_hours && answered(i)).length },
+  };
+}
+
+// 帳に答えがあったはずかを Claude(claude-sonnet-5-5)が判定する。その時点の帳を全部見せる
+export function claudeAnswerable(create: (p: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>): AnswerableJudge {
+  return async ({ question, book }) => {
+    const res = await create({
+      model: "claude-sonnet-5-5",
+      max_tokens: 400,
+      system: [
+        "無人自習室のスタッフの質問と、その時点で引き継ぎ帳にあった過去の答え(人が実際に答えた言葉)の一覧を見ます。",
+        "一覧の中に、この質問にそのまま答えになるもの(その答えを読めば、スタッフが次に取る行動が決まるもの)があるかを判定し、record_answerable を1回だけ呼んでください。文章で答えないでください。",
+        "- 似た話題でも、別の物・別の場面の答えは当たらない",
+        "- 前後のやり取りがないと何を聞いているか分からない質問(「どうしましょうか」だけ等)は、当たるものなしとする",
+        "- 当たるものが複数あれば、一番そのまま答えになるもの1つ",
+      ].join("\n"),
+      tools: [
+        {
+          name: "record_answerable",
+          description: "判定を記録する",
+          input_schema: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "そのまま答えになる過去の答えの id。なければ空文字" },
+              reason: { type: "string" },
+            },
+            required: ["id", "reason"],
+          },
+        },
+      ],
+      tool_choice: { type: "auto" },
+      messages: [{ role: "user", content: `質問: ${question}\n\n引き継ぎ帳:\n${JSON.stringify(book)}` }],
+    });
+    const b = res.content.find((x): x is Anthropic.ToolUseBlock => x.type === "tool_use");
+    const id = String((b?.input as { id?: unknown } | undefined)?.id ?? "").trim();
+    return { id: id || null };
   };
 }
 

@@ -108,3 +108,38 @@ describe("当時の答えの種類で一致率を分ける", () => {
     expect(summary.holiday.total).toBe(2);
   });
 });
+
+describe("帳に答えがあったはずか", () => {
+  const csv = [
+    "id,asked_at,question,answered_at,answered_by,answer,kind,off_hours,holiday,reusable",
+    "c1,2026-07-01 10:00,掃除機の紙パックはどこ?,2026-07-01 10:00,デモオーナー,流しの下の引き出しの中。,place,0,0,1",
+    "c2,2026-07-02 10:00,ゴミ袋の予備はどこ?,2026-07-02 10:00,デモオーナー,用具棚の下の段。,place,0,0,1",
+    "c3,2026-07-04 10:00,掃除機の紙パックはどこ?,,,,place,1,1,0", // 帳に答えがあり、返せる
+    "c4,2026-07-05 10:00,ゴミ袋のストックってある?,,,,place,1,0,0", // 帳に答えはあるが、言い回しが離れていて返せない
+    "c5,2026-07-06 10:00,どうしましょうか,,,,place,0,0,0", // 帳に答えなし
+  ].join("\n");
+
+  it("帳の判定と照らして、返せた / 見落とした(候補に出た・出なかった)/ 答えがないのに返したを数える", async () => {
+    const books: string[][] = [];
+    const answerable = async ({ question, book }: { question: string; book: { id: string }[] }) => {
+      books.push(book.map((b) => b.id));
+      return { id: question.startsWith("掃除機") ? "c1" : question.startsWith("ゴミ袋") ? "c2" : null };
+    };
+    const { items, summary } = await replay(parseCsv(csv), { call: fakeAgent, judge, answerable });
+    expect(books[0]).toEqual(["c1"]); // 帳が空の最初の質問(c1)では呼ばない。c2 の時点の帳は c1 だけ
+    const by = Object.fromEntries(items.map((i) => [i.id, i]));
+    expect(by.c3).toMatchObject({ outcome: "answered_with_source", source_id: "c1", answerable: { id: "c1" } });
+    expect(by.c4).toMatchObject({ outcome: "handed_to_human", answerable: { id: "c2" } });
+    expect(by.c5!.answerable).toEqual({ id: null });
+    // c2 の時点の帳は c1 だけなので、判定が c2 を挙げても帳になかったものとして扱う
+    expect(by.c2!.answerable).toEqual({ id: null });
+    expect(summary.answerable).toMatchObject({ total: 2, answered_with_source: 1, answered_same_source: 1, answered_but_not_answerable: 0 });
+    expect(summary.answerable!.missed_shown + summary.answerable!.missed_not_shown).toBe(1);
+    expect(summary.answerable!.holiday).toEqual({ total: 1, answered_with_source: 1 });
+  });
+
+  it("測らなければ answerable は null", async () => {
+    const { summary } = await replay(parseCsv(csv), { call: fakeAgent, judge });
+    expect(summary.answerable).toBeNull();
+  });
+});
