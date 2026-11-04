@@ -32,7 +32,12 @@ export async function loadStats(db: D1Database): Promise<Stats> {
   );
   const findings = await byKey(`SELECT status AS k, count(*) AS n FROM findings WHERE kind = 'unreported' AND store_id IN ${REAL_STORES} GROUP BY status`);
   const drafts = await byKey(`SELECT status AS k, count(*) AS n FROM drafts WHERE store_id IN ${REAL_STORES} GROUP BY status`);
-  const rules = await byKey(`SELECT status AS k, count(*) AS n FROM rules WHERE origin = 'knowledge' GROUP BY status`);
+  // ルール候補は、元になった引き継ぎ帳の質問の店舗で判定する(テスト用の店舗の質問から生まれたものは数えない)。
+  // 店舗を持たない質問(全店の知識)から生まれたものは数える
+  const rules = await byKey(
+    `SELECT r.status AS k, count(*) AS n FROM rules r JOIN knowledge k ON k.id = r.origin_knowledge_id
+      WHERE r.origin = 'knowledge' AND (k.store_id IS NULL OR k.store_id IN ${REAL_STORES}) GROUP BY r.status`,
+  );
 
   return {
     reports: await n(`SELECT count(*) AS n FROM reports WHERE merged_into_report_id IS NULL AND channel <> 'seed' AND store_id IN ${REAL_STORES}`),
