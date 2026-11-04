@@ -5,7 +5,9 @@ export type FindingRow = {
   id: string;
   kind: string;
   detected_at: string;
-  reasoning_path: string; // JSON [{ step, detail }]
+  reasoning_path: string; // JSON [{ step, detail, key? }]
+  evidence?: string | null; // JSON(報告の送信時刻・入室の解錠時刻など)
+  target_name?: string | null; // 対象のスタッフの呼び名
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -22,13 +24,37 @@ function when(iso: string): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${hh}:${mm}`;
 }
 
-function steps(json: string): { step: string; detail: string }[] {
+function steps(json: string): { step: string; detail: string; key?: boolean }[] {
   try {
     const v = JSON.parse(json) as unknown;
-    return Array.isArray(v) ? (v as { step: string; detail: string }[]) : [];
+    return Array.isArray(v) ? (v as { step: string; detail: string; key?: boolean }[]) : [];
   } catch {
     return [];
   }
+}
+
+function evidenceOf(json: string | null | undefined): { sent_at?: string; unlocked_at?: string } {
+  try {
+    return (JSON.parse(json ?? "{}") as { sent_at?: string; unlocked_at?: string }) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+// 見出しは、数秒映るだけで何が起きたかを一行で読めるように(11/4 見直し)
+//   ルールに該当 → 「ルール6に該当 — はるとさんの報告(11/4 16:36)」
+//   報告が届いていない → 「そうたさんの報告が届いていない(11/4 14:34 に入室)」
+export function findingTitle(f: FindingRow): string {
+  const e = evidenceOf(f.evidence);
+  const name = f.target_name ? `${f.target_name}さん` : null;
+  if (f.kind === "rule_match") {
+    const rule = steps(f.reasoning_path).find((s) => /^ルール\d+に該当$/.test(s.step))?.step ?? KIND_LABEL.rule_match!;
+    return name && e.sent_at ? `${rule} — ${name}の報告(${when(e.sent_at)})` : `${rule}(${when(f.detected_at)})`;
+  }
+  if (f.kind === "unreported" && name) {
+    return `${name}の報告が届いていない${e.unlocked_at ? `(${when(e.unlocked_at)} に入室)` : ""}`;
+  }
+  return `${KIND_LABEL[f.kind] ?? f.kind}(${when(f.detected_at)})`;
 }
 
 export function FindingsSection(props: { findings: FindingRow[] }) {
@@ -41,14 +67,12 @@ export function FindingsSection(props: { findings: FindingRow[] }) {
         <ul class="rules">
           {props.findings.map((f) => (
             <li>
-              <p class="rule-text">
-                {KIND_LABEL[f.kind] ?? f.kind} <span class="meta" style="display:inline">{when(f.detected_at)}</span>
-              </p>
-              <details open={f.kind === "rule_match"}>
+              <p class="rule-text">{findingTitle(f)}</p>
+              <details open={f.kind === "rule_match" || f.kind === "unreported"}>
                 <summary>判断経路</summary>
                 <ol class="path">
                   {steps(f.reasoning_path).map((s) => (
-                    <li>
+                    <li class={s.key ? "key" : undefined}>
                       <strong>{s.step}</strong> {s.detail}
                     </li>
                   ))}
@@ -63,8 +87,8 @@ export function FindingsSection(props: { findings: FindingRow[] }) {
 }
 
 export const FINDINGS_QUERY = `
-  SELECT id, kind, detected_at, reasoning_path
-    FROM findings
-   WHERE store_id = ? AND status = 'active'
-   ORDER BY detected_at DESC
+  SELECT f.id, f.kind, f.detected_at, f.reasoning_path, f.evidence, s.display_name AS target_name
+    FROM findings f LEFT JOIN staff s ON s.id = f.target_staff_id
+   WHERE f.store_id = ? AND f.status = 'active'
+   ORDER BY f.detected_at DESC
    LIMIT 10`;

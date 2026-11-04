@@ -240,8 +240,9 @@ describe("判断の答えはルール候補になり、承認でだけ有効に�
     const html = await page();
     expect(html).toContain("この答えをルールにしますか");
     expect(html).toContain("ルール6「忘れ物は貴重品なら7番ロッカー、ほかは忘れ物BOX」");
-    expect(html).toContain("席に財布が置きっぱなしだけど、どうすればいい?(11/7 みおさん)");
-    expect(html).toContain("財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。(11/8 デモオーナー)");
+    // 日付に曜日と休業日を添える(11/7 は土曜 = デモの休業日)
+    expect(html.replace(/<!-- -->/g, "")).toContain("席に財布が置きっぱなしだけど、どうすればいい?(11/7(土・休業日) みおさん)");
+    expect(html.replace(/<!-- -->/g, "")).toContain("財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。(11/8(日) デモオーナー)");
   });
 
   it("承認するとルール一覧に由来つきで並ぶ(面談のルールと同じ一覧)", async () => {
@@ -253,7 +254,8 @@ describe("判断の答えはルール候補になり、承認でだけ有効に�
 
     const html = await page();
     expect(html).not.toContain("この答えをルールにしますか");
-    expect(html).toContain("由来: 引き継ぎ帳(11/7 みおさんの質問、11/8 デモオーナーの回答)");
+    // スタッフの質問から生まれたルールは、面談のルールと見分けられるように出す
+    expect(html.replace(/<!-- -->/g, "")).toContain("スタッフの質問から: 11/7(土・休業日) みおさんの質問 → 11/8(日) デモオーナーの答え");
     expect(html).toContain("由来: 立ち上げ面談");
 
     // 一度決めたものは押し直しても変わらない
@@ -327,15 +329,19 @@ describe("翌週の清掃報告: 承認したルールに照らして検出し�
     if (out.kind !== "report") throw new Error();
     const f = await db().prepare("SELECT kind, rule_ids, reasoning_path FROM findings WHERE id = ?").bind(out.ruleFindings[0]!.findingId).first<{ kind: string; rule_ids: string; reasoning_path: string }>();
     expect(f!.kind).toBe("rule_match");
-    const path = JSON.parse(f!.reasoning_path) as { step: string; detail: string }[];
-    expect(path.map((p) => p.step)).toEqual(["投稿を受け取る", "写真と本文を読む", "ルール6に該当", "ルールの由来", "見えたこと", "対応"]);
-    expect(path[0]!.detail).toBe("はるとさんの投稿(送信 11/12 19:30)");
-    expect(path[3]!.detail).toBe("引き継ぎ帳: 11/7 みおさんの質問「席に財布が置きっぱなしだけど、どうすればいい?」→ 11/8 デモオーナーの回答「財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。」");
+    const path = JSON.parse(f!.reasoning_path) as { step: string; detail: string; key?: boolean }[];
+    // 上から読んで「見えたこと → ルール6 → 休業日の質問 → オーナーの答え → 別のスタッフへの答え」とつながる順(11/4 見直し)
+    expect(path.map((p) => p.step)).toEqual(["投稿を受け取る", "見えたこと", "ルール6に該当", "元になった質問", "オーナーの答え", "対応"]);
+    expect(path[0]!.detail).toBe("はるとさんの報告(写真1枚、11/12 19:30)。承認済みのルールと照らし合わせた");
+    expect(path[3]!.detail).toBe("11/7(土・休業日) みおさん「席に財布が置きっぱなしだけど、どうすればいい?」");
+    expect(path[4]!.detail).toBe("11/8(日) デモオーナー「財布や携帯などの貴重品は、スタッフだけが開けられる7番のロッカーに保管して。そのほかの忘れ物は、用具棚の忘れ物BOXへ。どちらも、見つけた場所と時間を書いて、忘れ物の写真もつけて報告して。」");
+    expect(path[5]!.detail).toBe("はるとさんのスレッドに、みおさんの質問へのオーナーの答えを、原文のまま返した。オーナーにも知らせた");
+    expect(path.filter((p) => p.key).map((p) => p.step)).toEqual(["ルール6に該当", "元になった質問"]);
 
-    const html = await (await app.request("/stores/tenjin", {}, proxy.env)).text();
-    expect(html).toContain("ルールに該当");
-    expect(html).toContain("ルール6に該当");
-    expect(html).toContain("11/7 みおさんの質問");
+    const html = (await (await app.request("/stores/tenjin", {}, proxy.env)).text()).replace(/<!-- -->/g, "");
+    expect(html).toContain("ルール6に該当 — はるとさんの報告(11/12 19:30)");
+    expect(html).toContain("11/7(土・休業日) みおさん「席に財布");
+    expect(html).toContain('<li class="key"><strong>元になった質問</strong>');
   });
 });
 

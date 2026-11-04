@@ -25,7 +25,7 @@ export type ResolveResult = {
   memo: string | null;
   confidence: number;
   reply: string;
-  leftover_cleared: boolean; // 「拾ってもらえますか」への答えで、片づけたと分かった
+  leftover_cleared: boolean; // 「片づけてもらえますか」への答えで、片づけたと分かった
 };
 
 export type Resolver = (input: ResolveInput) => Promise<{ result: ResolveResult; usage: StructureUsage }>;
@@ -48,7 +48,7 @@ function tool(areaIds: string[]): Anthropic.Tool {
         confidence: { type: "number", minimum: 0, maximum: 1, description: "確定版の確信度。答えで確かめられたら上げる" },
         leftover_cleared: {
           type: "boolean",
-          description: "聞き返しが「残っている汚れ・ゴミを拾ってもらえますか」で、答えから片づけたと分かるなら true。片づけていない・分からないなら false",
+          description: "聞き返しが「残っている汚れ・ゴミを片づけてもらえますか」で、答えから片づけたと分かるなら true。片づけていない・分からないなら false",
         },
         reply: {
           type: "string",

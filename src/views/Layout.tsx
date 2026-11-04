@@ -30,10 +30,11 @@ section.card { background: var(--card); border: 1px solid var(--line); border-ra
 ul.board { list-style: none; margin: 0; padding: 0; }
 ul.board li { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; border-top: 1px solid var(--line); }
 ul.board li:first-child { border-top: 0; }
-.status { font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+.status { font-size: 1rem; font-weight: 600; white-space: nowrap; }
 .status.done { color: var(--done); } .status.pending { color: var(--pending); }
 .status.carried_over { color: var(--carried); } .status.no_assignee { color: var(--none); } .status.needs_recheck { color: var(--carried); }
 .note { display: block; font-size: 0.8rem; color: var(--muted); }
+.note.key { font-size: 1rem; color: var(--text); }
 a { color: var(--accent); }
 ul.stores { list-style: none; padding: 0; margin: 0; }
 ul.stores li a { display: block; padding: 12px 0; min-height: 44px; border-top: 1px solid var(--line); text-decoration: none; }
@@ -42,6 +43,8 @@ ul.rules { list-style: none; margin: 0; padding: 0; }
 ul.rules li { border-top: 1px solid var(--line); padding: 10px 0; }
 ul.rules li:first-child { border-top: 0; padding-top: 0; }
 .rule-q { margin: 0; font-size: 0.85rem; color: var(--muted); }
+.rule-ask { margin: 0 0 4px; font-size: 1.1rem; font-weight: 700; }
+.origin-key { margin: 4px 0 0; padding-left: 8px; border-left: 3px solid var(--accent); font-size: 1rem; font-weight: 600; }
 .rule-text { margin: 2px 0; font-weight: 600; }
 dl.rule-src { margin: 6px 0; font-size: 0.9rem; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
 dl.rule-src dt { color: var(--muted); } dl.rule-src dd { margin: 0; }
@@ -50,6 +53,7 @@ dl.rule-src dt { color: var(--muted); } dl.rule-src dd { margin: 0; }
 button { font: inherit; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
 ol.path { margin: 6px 0 0; padding-left: 1.4em; font-size: 0.9rem; }
 ol.path li { margin: 2px 0; }
+ol.path li.key { border-left: 3px solid var(--accent); padding-left: 8px; font-weight: 600; }
 details summary { cursor: pointer; color: var(--accent); font-size: 0.9rem; min-height: 32px; }
 form.add-rule { display: grid; gap: 6px; margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 form.add-rule label { font-size: 0.9rem; color: var(--muted); }

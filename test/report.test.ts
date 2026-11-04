@@ -342,7 +342,7 @@ describe("汚れが残っている写真は完了にしない(11/3 実機: 紙�
     const { deps, posted } = fakes(DIRTY);
     const out = await processReportEvent(db(), toReportEvent(msg({ subtype: "file_share", ts: mon(0), text: "", files: [{ id: "F40", mimetype: "image/jpeg", thumb_1024: "https://files.example/d" }] }))!, deps);
     expect(out).toMatchObject({ kind: "report", boardUpdated: 1, needsRecheck: 1 });
-    expect(posted[0]!.text).toBe("あおいさん、おつかれさま!トイレとゴミ置き場、受け付けました。\nトイレの床に紙くずが数か所と黒っぽい汚れが見えます。拾ってもらえますか? 終わったらこのスレッドに一言ください。");
+    expect(posted[0]!.text).toBe("あおいさん、おつかれさま!トイレとゴミ置き場、受け付けました。\n写真で見えたもの: トイレ(床に紙くずが数か所と黒っぽい汚れ)。片づけてもらえますか? 終わったらこのスレッドに一言ください。");
     expect(posted[0]!.text.match(/[?？]/g)).toHaveLength(1);
     const board = await db().prepare("SELECT area_id, status, recheck_note FROM board_items WHERE store_id = 'tenjin' AND date = '2026-11-09' AND status <> 'pending' ORDER BY area_id").all();
     expect(board.results).toEqual([
@@ -400,7 +400,7 @@ describe("汚れが残っている写真は完了にしない(11/3 実機: 紙�
       done_basis: null,
     });
     const last = dirty.posted.at(-1)!.text;
-    expect(last).toBe("ありがとう。写真ではまだトイレの便器の右側に紙くずが見えるので、要確認のまま残しておきます。");
+    expect(last).toBe("ありがとう。写真ではまだ見えるので(トイレ: 便器の右側に紙くず)、要確認のまま残しておきます。");
     expect(last).not.toMatch(/[?？]/);
 
     // そのあと本人がきれいな写真を送ってきた(11/3 実機: 何も返らなかった)→ もう一度見て完了、必ず一言返す
@@ -430,6 +430,39 @@ describe("汚れが残っている写真は完了にしない(11/3 実機: 紙�
     const b = fakes(DIRTY);
     expect(await processReportEvent(db(), toReportEvent(msg({ thread_ts: fri(0), ts: fri(600), text: "拾いました" }))!, b.deps)).toMatchObject({ kind: "recheck_followup", replied: true });
     expect(await db().prepare("SELECT status, done_basis FROM board_items WHERE id = 'tenjin:2026-11-13:tenjin_toilet'").first()).toEqual({ status: "done", done_basis: "staff_word" });
+  });
+
+  // 頼み方を「拾ってもらえますか」から「片づけてもらえますか」に変えた(11/4 見直し。実店舗のスタッフにも届く文)。
+  // 返事の「片づけました」「片付けておきました」が、片づけたと読む判定(片付・片づ)に当たって完了になることを確かめる
+  it("「片づけてもらえますか」への返事: 「片づけました」「片付けておきました」は本人の申告で完了になる", async () => {
+    for (const [day, answer] of [
+      [20, "片づけました"],
+      [21, "片付けておきました"],
+    ] as const) {
+      const t = (o: number) => (Date.UTC(2026, 11, day, 9, 0) / 1000 + o).toFixed(6);
+      const photo: Partial<SlackMessageEvent> = { subtype: "file_share", files: [{ id: `F_KATA_${day}`, mimetype: "image/jpeg", thumb_1024: "https://files.example/kata" }] };
+      const first = fakes(DIRTY);
+      await processReportEvent(db(), toReportEvent(msg({ ...photo, ts: t(0), text: "" }))!, first.deps);
+      expect(first.posted[0]!.text).toContain("片づけてもらえますか?");
+      // 1回目の答え(あとでやる)。Claude には、頼んだ文として「片づけてもらえますか」が渡る
+      const later = fakes(DIRTY, { areas: ["tenjin_toilet", "tenjin_trash"], leftover_cleared: false, reply: "了解です、ありがとう。" });
+      await processReportEvent(db(), toReportEvent(msg({ thread_ts: t(0), ts: t(60), text: "あとでやります" }))!, later.deps);
+      expect(later.resolveInputs[0]!.question).toBe("写真で見えたもの: トイレ(床に紙くずが数か所と黒っぽい汚れ)。片づけてもらえますか?");
+      // 文だけの追いかけで、片づけたと読める
+      const done = fakes(DIRTY);
+      expect(await processReportEvent(db(), toReportEvent(msg({ thread_ts: t(0), ts: t(600), text: answer }))!, done.deps)).toMatchObject({ kind: "recheck_followup", replied: true });
+      expect(await db().prepare(`SELECT status, done_basis FROM board_items WHERE id = 'tenjin:2026-12-${day}:tenjin_toilet'`).first()).toEqual({ status: "done", done_basis: "staff_word" });
+    }
+  });
+
+  it("見えたものの並べ方: 助詞や箇所名が重ならず、こぼれ跡にも合う言い方にする", () => {
+    const name = (id: string) => ({ tenjin_drink: "ドリンク周り", tenjin_floor: "床・デスク" })[id] ?? id;
+    const text = composeReply(
+      { reply: "おつかれさま。受け付けました。", clarify_question: null, leftover: [{ area: "tenjin_drink", what: "台にコーヒーのこぼれ跡" }, { area: "tenjin_floor", what: "窓側のデスクに消しゴムのかす。" }] },
+      name,
+    );
+    expect(text).toBe("おつかれさま。受け付けました。\n写真で見えたもの: ドリンク周り(台にコーヒーのこぼれ跡)、床・デスク(窓側のデスクに消しゴムのかす)。片づけてもらえますか? 終わったらこのスレッドに一言ください。");
+    expect(text).not.toMatch(/拾|が見えます|床・デスクの窓側/);
   });
 });
 
