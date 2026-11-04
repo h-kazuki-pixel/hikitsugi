@@ -4,6 +4,7 @@
 PRAGMA defer_foreign_keys = true;
 DROP VIEW IF EXISTS reports_current;
 DROP VIEW IF EXISTS knowledge_current;
+DROP TABLE IF EXISTS count_events;
 DROP TABLE IF EXISTS claude_usage;
 DROP TABLE IF EXISTS knowledge_waiters;
 DROP TABLE IF EXISTS clarifications;
