@@ -9,7 +9,7 @@
 // - 本文はログに出さない
 
 import type { ReportEvent } from "../channels/report-event";
-import { jstDate } from "../lib/time";
+import { dayLabel, jstDate } from "../lib/time";
 import { recordCount } from "../lib/counts";
 import { recordUsage } from "../lib/usage";
 import type { SlackClient } from "../slack/api";
@@ -20,7 +20,7 @@ import type { RuleDrafter } from "../rules/candidate";
 import { md, ruleOrigin } from "../rules/origin";
 import { sourceLabel } from "../knowledge/search";
 import { handleOwnerAnswer, handleQuestion, lookupPerson, type QuestionOutcome } from "../knowledge/handle";
-import { composeReply, type Structurer, type StructureResult } from "./structure";
+import { composeReply, leftoverItems, type Structurer, type StructureResult } from "./structure";
 import type { RuleChecker } from "./rulecheck";
 
 export type ProcessDeps = {
@@ -162,7 +162,8 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
 
   if (!isReport) {
     const findingId = hasTrouble ? await recordTrouble(db, deps, newId, store, sender, ev, result, null) : null;
-    await recordRuleMatches(db, deps, newId, store, sender, ev, result, rules, images.length, null);
+    // 報告でない投稿には、元のオーナーの回答をスレッドで返さない(返事を返すのは報告と質問だけ)
+    await recordRuleMatches(db, deps, newId, store, sender, ev, result, rules, images.length, null, null);
     const question = await askQuestion();
     return { kind: "not_report", categories: result.categories, findingId, ...(question ? { question } : {}) };
   }
@@ -233,7 +234,9 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   const needsRecheck = await markNeedsRecheck(db, store.id, date, result.leftover, mergedInto ?? reportId);
 
   const findingId = hasTrouble ? await recordTrouble(db, deps, newId, store, sender, ev, result, reportId) : null;
-  const ruleFindings = await recordRuleMatches(db, deps, newId, store, sender, ev, result, rules, images.length, reportId);
+  // 元のオーナーの回答をスレッドで返すのは、汚れの頼みがないときの、最初の引き継ぎ帳のルールだけ(下の ruleReminder と同じ)
+  const remindedRuleNo = result.leftover.length ? null : reminderRuleNo(result, rules);
+  const ruleFindings = await recordRuleMatches(db, deps, newId, store, sender, ev, result, rules, images.length, reportId, remindedRuleNo);
 
   let replied = false;
   // 畳み込んだ送信にも受付は返す(11/3 実機: 5分以内の2通目に返事がなく、無視されたように見えた)
@@ -244,7 +247,7 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   }
   // ルール(判断の基準)に当たる物が写っていたら、報告のスレッドで、元になったオーナーの回答をそのまま返す
   // (11/3 橋本: 忘れ物は見つけた本人がその場でしまえる。文はコードが組み、新しく作らない)。
-  // 汚れの「拾ってもらえますか」が先。返事に添えるのは1つだけ
+  // 汚れの「片づけてもらえますか」が先。返事に添えるのは1つだけ
   const reminder = result.leftover.length ? null : ruleReminder(result, rules);
   const reply = reminder
     ? `${result.reply}\n${reminder}`
@@ -256,7 +259,7 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
     replied = res.ok;
     // 聞き返しを送れたら記録する(1報告に1回だけ)。答えがこのスレッドに来たら版2を積む
     const asked = result.leftover.length
-      ? `${result.leftover.map((l) => `${areas.find((a) => a.id === l.area)?.name ?? l.area}の${l.what}`).join("、")}が見えます。拾ってもらえますか?`
+      ? `写真で見えたもの: ${leftoverItems(result.leftover, (id) => areas.find((a) => a.id === id)?.name ?? id)}。片づけてもらえますか?`
       : result.clarify_question;
     if (res.ok && asked) {
       await db
@@ -467,9 +470,10 @@ async function settleRecheck(
           .run();
       }
       if (still.length) {
-        const seen = still.map((l) => `${areas.find((a) => a.id === l.area)?.name ?? l.area}の${l.what}`).join("、");
+        // 括弧の中に括弧を重ねないよう「トイレ: …」の形にする
+        const seen = leftoverItems(still, (id) => areas.find((a) => a.id === id)?.name ?? id, "colon");
         // 聞き返しは1回だけ。重ねて頼まず、残したことだけ伝える
-        reply = { reply: `ありがとう。写真ではまだ${seen}が見えるので、要確認のまま残しておきます。`, still: true };
+        reply = { reply: `ありがとう。写真ではまだ見えるので(${seen})、要確認のまま残しておきます。`, still: true };
       }
     } else if (cleared) {
       await setDone(pending.map((p) => p.area_id), "staff_word");
@@ -531,6 +535,15 @@ type JudgmentRule = {
 
 // ルールに当たる物が写っていたときに、スタッフへの受付に添える一文(引き継ぎ帳から生まれたルールだけ)。
 // 中身は元になったオーナーの回答の原文と出典。Claude には書かせない
+// スレッドで元の回答を返すルールの番号(引き継ぎ帳から生まれ、回答があるもののうち最初の1つ)
+function reminderRuleNo(result: Pick<StructureResult, "rule_matches">, rules: JudgmentRule[]): number | null {
+  for (const m of result.rule_matches) {
+    const r = rules.find((x) => x.rule_no === m.rule_no);
+    if (r && r.origin === "knowledge" && r.answer && r.answered_at) return r.rule_no;
+  }
+  return null;
+}
+
 export function ruleReminder(result: Pick<StructureResult, "rule_matches">, rules: JudgmentRule[]): string | null {
   for (const m of result.rule_matches) {
     const r = rules.find((x) => x.rule_no === m.rule_no);
@@ -574,8 +587,12 @@ async function recordRuleMatches(
   rules: JudgmentRule[],
   imageCount: number,
   reportId: string | null,
+  remindedRuleNo: number | null,
 ): Promise<{ findingId: string; ruleNo: number }[]> {
   const out: { findingId: string; ruleNo: number }[] = [];
+  const closedDays = result.rule_matches.length
+    ? ((await db.prepare("SELECT closed_days FROM stores WHERE id = ?").bind(store.id).first<{ closed_days: string }>())?.closed_days ?? null)
+    : null;
   const owner = result.rule_matches.length
     ? await db
         .prepare("SELECT slack_user_id FROM staff WHERE role = 'owner' AND status = 'active' AND slack_user_id IS NOT NULL LIMIT 1")
@@ -586,18 +603,28 @@ async function recordRuleMatches(
     if (!rule) continue;
     const id = newId();
     const who = sender?.display_name ?? "名簿にない人";
-    const path = [
-      { step: "投稿を受け取る", detail: `${who}さんの投稿(送信 ${jstLabel(ev.sentAt)})` },
-      { step: "写真と本文を読む", detail: `写真${imageCount}枚と本文を、有効な判断の基準${rules.length}件と照合` },
-      { step: `ルール${rule.rule_no}に該当`, detail: `「${rule.natural_text}」` },
-      { step: "ルールの由来", detail: ruleOrigin(rule) },
+    // 上から読んで「見えたこと → ルール → 休業日の質問 → オーナーの答え → 別のスタッフへの答え」とつながる順(11/4 見直し)。
+    // key: 画面で目立たせる行(ルールに該当・元になった質問)
+    const fromKnowledge = rule.origin === "knowledge";
+    const reminded = remindedRuleNo === rule.rule_no;
+    const path: { step: string; detail: string; key?: boolean }[] = [
+      {
+        step: "投稿を受け取る",
+        detail: `${who}さんの報告(${imageCount ? `写真${imageCount}枚、` : ""}${jstLabel(ev.sentAt)})。承認済みのルールと照らし合わせた`,
+      },
       { step: "見えたこと", detail: m.evidence },
+      { step: `ルール${rule.rule_no}に該当`, detail: `「${rule.natural_text}」`, key: true },
+      ...(fromKnowledge
+        ? [
+            { step: "元になった質問", detail: `${dayLabel(rule.asked_at, closedDays)} ${rule.asked_by ?? "スタッフ"}さん「${rule.question ?? ""}」`, key: true },
+            { step: "オーナーの答え", detail: `${dayLabel(rule.answered_at, closedDays)} ${rule.answered_by ?? "オーナー"}「${rule.answer ?? ""}」` },
+          ]
+        : [{ step: "ルールの由来", detail: ruleOrigin(rule) }]),
       {
         step: "対応",
-        detail:
-          rule.origin === "knowledge"
-            ? "報告のスレッドで、元になったオーナーの回答をそのまま返す。オーナーにも知らせる(宛先が運営側なので承認なし)"
-            : "オーナーに知らせる(宛先が運営側なので承認なし)",
+        detail: reminded
+          ? `${who}さんのスレッドに、${rule.asked_by ?? "スタッフ"}さんの質問へのオーナーの答えを、原文のまま返した。オーナーにも知らせた`
+          : "オーナーに知らせた",
       },
     ];
     await db

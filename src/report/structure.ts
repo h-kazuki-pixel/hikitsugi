@@ -80,7 +80,7 @@ function tool(areaIds: string[], ruleNos: number[]): Anthropic.Tool {
         leftover: {
           type: "array",
           description:
-            "清掃後の写真なのに、汚れ・ゴミ・紙くずが残っていると確かに見える箇所。見えないときは空。推測で入れない。入れた箇所は「完了」にならず「要確認」になり、スタッフに拾ってもらうよう頼む",
+            "清掃後の写真なのに、汚れ・ゴミ・紙くずが残っていると確かに見える箇所。見えないときは空。推測で入れない。入れた箇所は「完了」にならず「要確認」になり、スタッフに片づけてもらうよう頼む",
           items: {
             type: "object",
             properties: {
@@ -122,7 +122,7 @@ function system(input: StructureInput): string {
     "",
     "決まりごと:",
     "- 写真は清掃後の様子として見る。写っている場所から清掃箇所を判定する。写真から分かる備品の残量も拾う",
-    "- 清掃後なのに汚れ・ゴミ・紙くずが残って見えるときは leftover に箇所と何が残っているかを入れる。その箇所は完了にならず、スタッフに拾ってもらう頼みをシステムが添える。「清掃後の写真で合ってますか」とは聞かない(写真は清掃後と決めてある)。leftover は trouble ではない(trouble は故障・放置された粗大ゴミ・違反など、スタッフの清掃の範囲を超えるもの)",
+    "- 清掃後なのに汚れ・ゴミ・紙くずが残って見えるときは leftover に箇所と何が残っているかを入れる。その箇所は完了にならず、スタッフに片づけてもらう頼みをシステムが添える。「清掃後の写真で合ってますか」とは聞かない(写真は清掃後と決めてある)。leftover は trouble ではない(trouble は故障・放置された粗大ゴミ・違反など、スタッフの清掃の範囲を超えるもの)",
     "- 読み取れないことを推測で埋めない。迷ったら confidence を下げる",
     "- 聞き返しは1回、1つだけ。報告された内容のうち確かめないと記録が誤る1点だけを clarify_question に書く。報告にない箇所や作業を尋ねない。確かめることがなければ null",
     "- 受付の文(reply)はスタッフへの返事。ねぎらいを先に、短く、責めない。オーナーの口調に寄せる。reply には質問を書かない",
@@ -199,8 +199,24 @@ function withoutQuestions(reply: string): string {
     .trim();
 }
 
+// 写真に残っている汚れ・ゴミを、箇所ごとに「トイレ(床に紙くずが2つ)」の形で並べる。
+// 「トイレの床に紙くずが2つが見えます」のように助詞が重なったり、箇所名が重なったりしないように(11/4 見直し)
+export function leftoverItems(
+  leftover: { area: string; what: string }[],
+  areaName: (id: string) => string = (id) => id,
+  style: "paren" | "colon" = "paren",
+): string {
+  return leftover
+    .map((l) => {
+      const what = l.what.replace(/[。.]+$/, "");
+      return style === "paren" ? `${areaName(l.area)}(${what})` : `${areaName(l.area)}: ${what}`;
+    })
+    .join("、");
+}
+
 // スレッドに返す文: 受付 + (あれば)聞き返し1つ
-// 残っている汚れ・ゴミがあれば、問いの代わりに「拾ってもらえますか」を添える(聞き返しは1回なので、両方は送らない)
+// 残っている汚れ・ゴミがあれば、問いの代わりに「片づけてもらえますか」を添える(聞き返しは1回なので、両方は送らない)。
+// 紙くずにもこぼれ跡にも合うように「拾う」ではなく「片づける」と書く
 export function composeReply(
   result: Pick<StructureResult, "reply" | "clarify_question" | "leftover">,
   areaName: (id: string) => string = (id) => id,
@@ -208,8 +224,7 @@ export function composeReply(
   const ack = result.reply;
   if (!ack) return "";
   if (result.leftover.length) {
-    const seen = result.leftover.map((l) => `${areaName(l.area)}の${l.what}`).join("、");
-    return `${ack}\n${seen}が見えます。拾ってもらえますか? 終わったらこのスレッドに一言ください。`;
+    return `${ack}\n写真で見えたもの: ${leftoverItems(result.leftover, areaName)}。片づけてもらえますか? 終わったらこのスレッドに一言ください。`;
   }
   const q = result.clarify_question;
   return q ? `${ack}\n${q}` : ack;

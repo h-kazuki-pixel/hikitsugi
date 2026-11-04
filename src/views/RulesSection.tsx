@@ -1,5 +1,6 @@
 // 店舗ページのルール欄: ルール候補(承認の一押し)と、有効なルールの一覧(由来つき)
 // 面談(seed)で入れたルールと、引き継ぎ帳の「判断」の答えから承認で生まれたルールが同じ一覧に並ぶ(設計書 5-3)
+import { dayLabel } from "../lib/time";
 import { ACTION_LABEL, RECIPIENT_LABEL, URGENCY_LABEL } from "../rules/structure";
 
 export type RuleRow = {
@@ -35,7 +36,8 @@ export function originLabel(r: RuleRow): string {
   return `引き継ぎ帳(${md(r.asked_at)} ${r.asked_by ?? ""}さんの質問、${md(r.answered_at)} ${r.answered_by ?? ""}の回答)`;
 }
 
-export function RulesSection(props: { storeId: string; rules: RuleRow[] }) {
+// closedDays: 店舗の休業日(日付に「休業日」を添えるため)
+export function RulesSection(props: { storeId: string; rules: RuleRow[]; closedDays?: string | null }) {
   const candidates = props.rules.filter((r) => r.status === "candidate");
   const active = props.rules.filter((r) => r.status === "active");
   return (
@@ -46,7 +48,7 @@ export function RulesSection(props: { storeId: string; rules: RuleRow[] }) {
           <ul class="rules">
             {candidates.map((r) => (
               <li>
-                <p class="rule-q">{r.origin === "knowledge" ? "この答えをルールにしますか" : "この読み取りで有効にしますか"}</p>
+                <p class="rule-ask">{r.origin === "knowledge" ? "この答えをルールにしますか" : "この読み取りで有効にしますか"}</p>
                 <p class="rule-text">
                   ルール{r.rule_no}「{r.natural_text}」
                 </p>
@@ -54,11 +56,11 @@ export function RulesSection(props: { storeId: string; rules: RuleRow[] }) {
                   <dl class="rule-src">
                     <dt>質問</dt>
                     <dd>
-                      {r.question}({md(r.asked_at)} {r.asked_by}さん)
+                      {r.question}({dayLabel(r.asked_at, props.closedDays)} {r.asked_by}さん)
                     </dd>
                     <dt>答え</dt>
                     <dd>
-                      {r.answer}({md(r.answered_at)} {r.answered_by})
+                      {r.answer}({dayLabel(r.answered_at, props.closedDays)} {r.answered_by})
                     </dd>
                   </dl>
                 ) : (
@@ -110,7 +112,15 @@ export function RulesSection(props: { storeId: string; rules: RuleRow[] }) {
                 <p class="rule-text">
                   ルール{r.rule_no}「{r.natural_text}」{r.store_id === null && <span class="badge">全店</span>}
                 </p>
-                <p class="meta">由来: {originLabel(r)}</p>
+                {r.origin === "knowledge" ? (
+                  // スタッフの質問から生まれたルールは、面談のルールと見分けられるように目立たせる
+                  <p class="origin-key">
+                    スタッフの質問から: {dayLabel(r.asked_at, props.closedDays)} {r.asked_by ?? "スタッフ"}さんの質問 → {dayLabel(r.answered_at, props.closedDays)}{" "}
+                    {r.answered_by ?? "オーナー"}の答え
+                  </p>
+                ) : (
+                  <p class="meta">由来: {originLabel(r)}</p>
+                )}
               </li>
             ))}
           </ul>

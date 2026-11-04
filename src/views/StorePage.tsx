@@ -65,7 +65,7 @@ export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: Js
               <li>
                 <span>
                   {b.area_name}
-                  {b.status === "needs_recheck" && b.recheck_note && <span class="note">{b.recheck_note}</span>}
+                  {b.status === "needs_recheck" && b.recheck_note && <span class="note key">写真で見えたもの: {b.recheck_note}</span>}
                 </span>
                 <span class={`status ${b.status}`}>
                   {STATUS_LABEL[b.status]}
@@ -83,11 +83,12 @@ export function StorePage(props: { store: StoreRow; board: BoardRow[]; today: Js
 
       <DraftsSection storeId={store.id} drafts={props.drafts ?? []} />
 
-      <SuppliesSection rows={props.supplies ?? []} />
-
+      {/* 下書きのすぐ下に、その理由(判断経路)を並べる。備品切れはそのあと(11/4 見直し) */}
       <FindingsSection findings={props.findings ?? []} />
 
-      <RulesSection storeId={store.id} rules={props.rules ?? []} />
+      <SuppliesSection rows={props.supplies ?? []} />
+
+      <RulesSection storeId={store.id} rules={props.rules ?? []} closedDays={store.closed_days} />
 
       {isDemo && <DemoPanel storeId={store.id} staff={props.demoStaff ?? []} />}
 
