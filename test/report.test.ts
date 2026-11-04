@@ -2,7 +2,7 @@
 // Claude と Slack は差し替える(テストでは外に出ない)。D1 はローカルの seed 入り
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { toReportEvent, type SlackMessageEvent } from "../src/channels/slack";
-import { processReportEvent, type ProcessDeps } from "../src/report/process";
+import { MAX_IMAGES, processReportEvent, type ProcessDeps } from "../src/report/process";
 import { composeReply, normalize, singleQuestion, type StructureInput, type StructureResult } from "../src/report/structure";
 import { normalizeAnswer, type ResolveInput, type ResolveResult } from "../src/report/clarify";
 import type { SlackClient } from "../src/slack/api";
@@ -193,6 +193,34 @@ describe("報告の処理", () => {
     } finally {
       await db().prepare("UPDATE stores SET accepts_operator_posts = 0 WHERE id = 'yakuin'").run();
     }
+  });
+
+  // 実店舗では「清掃した箇所ごとに1枚、1回の投稿にまとめて」とお願いしている(11/4)。薬院店・40日後で、ほかのテストとぶつけない
+  it("1回の投稿で写真は6枚まで読む。7枚目からは取り出せなかった写真に数える", async () => {
+    expect(MAX_IMAGES).toBe(6);
+    const { deps, inputs } = fakes({ ...REPORT, areas: ["yakuin_toilet"] });
+    const files = Array.from({ length: 7 }, (_, i) => ({ id: `F_SIX_${i}`, mimetype: "image/jpeg", thumb_1024: `https://files.example/six/${i}` }));
+    const ev = toReportEvent(msg({ channel: "C_DEMO_YAKUIN", user: "U_DEMO_SOTA", subtype: "file_share", files, text: "", ts: ts(40 * 86_400) }))!;
+    expect(ev.images).toHaveLength(7);
+    expect(await processReportEvent(db(), ev, deps)).toMatchObject({ kind: "report" });
+    expect(inputs[0]!.images).toHaveLength(6);
+    expect(inputs[0]!.imagesUnreadable).toBe(1);
+  });
+
+  // 室内は撮影禁止の店があるので、室内の清掃は文で報告してもらう(11/4)
+  it("文だけの報告: 写真0枚でもボードが完了になり、受付がスレッドに返り、ルールの照合(写真用)は呼ばない", async () => {
+    const f = fakes({ ...REPORT, areas: ["yakuin_toilet", "yakuin_trash"], clarify_question: null, reply: "おつかれさま。受け付けました。" });
+    let ruleChecks = 0;
+    const deps: ProcessDeps = { ...f.deps, checkRules: async (i) => (ruleChecks++, f.deps.checkRules(i)) };
+    const sentTs = ts(41 * 86_400); // 2026-12-12 18:25 JST
+    const ev = toReportEvent(msg({ channel: "C_DEMO_YAKUIN", user: "U_DEMO_SOTA", text: "サイレントとフリーアドレス、清掃完了", ts: sentTs }))!;
+    expect(ev.images).toEqual([]);
+    expect(await processReportEvent(db(), ev, deps)).toMatchObject({ kind: "report" });
+    expect(f.inputs[0]!.images).toEqual([]);
+    expect(ruleChecks).toBe(0);
+    const board = await db().prepare("SELECT area_id, status FROM board_items WHERE store_id = 'yakuin' AND date = '2026-12-12' ORDER BY area_id").all();
+    expect(board.results).toEqual([{ area_id: "yakuin_toilet", status: "done" }, { area_id: "yakuin_trash", status: "done" }]);
+    expect(f.posted).toEqual([{ channel: "C_DEMO_YAKUIN", text: "おつかれさま。受け付けました。", thread: sentTs }]);
   });
 
   it("オーナー・副担当の投稿は報告として数えない(Claude も呼ばない)", async () => {

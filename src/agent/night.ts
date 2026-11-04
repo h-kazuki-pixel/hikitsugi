@@ -244,6 +244,14 @@ export async function runNightCheck(db: D1Database, ctx: Ctx, deps: { call: Mode
     return { content: `知らないツール: ${name}`, isError: true };
   }
 
+  // その日の入室が0件なら、突き合わせるものがないので Claude を呼ばずに終える。
+  // 実店舗では入室の照合を動かさない(11/4 決定。入室の受け口を作らないので、入室は入らない)。
+  // それでも毎晩4店舗ぶん claude-opus-5-5 を呼んでいたのを止める。demo の模擬入室があれば今までどおり動く
+  if ((await entries()).length === 0) {
+    path.push({ step: "入室記録を読む", detail: "今日の入室は0件。突き合わせるものがないので終える(Claude は呼ばない)" });
+    return result;
+  }
+
   // ---- ツール使用ループ
   const messages: Anthropic.MessageParam[] = [
     {

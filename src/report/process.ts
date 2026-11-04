@@ -52,7 +52,8 @@ export type ProcessOutcome =
   | { kind: "clarified"; reportId: string; version: number; areas: string[]; replied: boolean }
   | { kind: "recheck_followup"; reportId: string; replied: boolean };
 
-const MAX_IMAGES = 4;
+// 1回の投稿で読む写真の上限。実店舗では「清掃した箇所ごとに1枚、1回の投稿にまとめて」とお願いしている(11/4。設計書 5-2)
+export const MAX_IMAGES = 6;
 
 // accepts_operator_posts: テスト用の店舗チャンネルだけ、運営の投稿も報告として受ける(migrations 0010)
 type Store = { id: string; name: string; tone_sample: string | null; accepts_operator_posts?: number };
