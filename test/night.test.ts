@@ -212,3 +212,19 @@ describe("デモの操作(demo 環境だけ)", () => {
     expect([403, 404]).toContain(prod.status);
   });
 });
+
+// 実店舗では入室の照合を動かさない(11/4 決定)。入室が入らないので、毎晩 Claude を呼ぶ意味がない
+describe("その日の入室が0件なら、Claude を呼ばずに終える", () => {
+  it("model call は0回。判断経路に理由を残す", async () => {
+    let calls = 0;
+    const call: ModelCall = async () => {
+      calls++;
+      throw new Error("呼ばれないはず");
+    };
+    const out = await runNightCheck(db(), { storeId: "yakuin", storeName: "薬院", date: "2027-05-01", now: jst("2027-05-01", "21:30"), toneSample: null }, { call, newId: () => `id_${++n}` });
+    expect(calls).toBe(0);
+    expect(out.findings).toEqual([]);
+    expect(out.usage.turns).toBe(0);
+    expect(out.path).toEqual([{ step: "入室記録を読む", detail: "今日の入室は0件。突き合わせるものがないので終える(Claude は呼ばない)" }]);
+  });
+});

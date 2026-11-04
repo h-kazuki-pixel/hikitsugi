@@ -109,6 +109,20 @@ describe("プライベートチャンネル(message.groups)", () => {
     });
   }
 
+  // 現行の清掃完了フォームの通知(Notion のオートメーション)が店舗チャンネルに流れる。bot_id つき・subtype なしで届く
+  it("現行フォームの通知(Notion のボットの投稿)は報告として拾わない", () => {
+    const notion: SlackMessageEvent = {
+      type: "message",
+      bot_id: "B_DEMO_NOTION",
+      channel: "C_DEMO_TENJIN",
+      channel_type: "group",
+      ts: "1761989600.000100",
+      text: ":broom: 清掃完了 / 実施者: 架空のスタッフ / 清掃箇所: トイレ、ゴミ",
+    };
+    expect(notion.subtype).toBeUndefined();
+    expect(toReportEvent(notion)).toBeNull();
+  });
+
   it("ボットの投稿は、プライベートチャンネルでも無視する", () => {
     expect(toReportEvent({ type: "message", bot_id: "B_DEMO", channel: "C_DEMO_TENJIN", channel_type: "group", ts: "1", text: "受け付けました" })).toBeNull();
   });

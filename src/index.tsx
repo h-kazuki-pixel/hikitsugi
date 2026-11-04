@@ -90,7 +90,9 @@ export default {
               { storeId: st.id, storeName: st.name, date: jstDate(new Date(job.scheduledAt)).iso, now: job.scheduledAt, toneSample: st.tone_sample },
               { call: modelCall(env.ANTHROPIC_API_KEY), newId: () => crypto.randomUUID() },
             );
-            await recordUsage(env.DB, { kind: "night_check", ...out.usage, store_id: st.id }, { findings: out.findings.length, steps: out.path.map((p) => p.step) });
+            // Claude を呼ばなかった夜(入室0件)は消費を記録しない
+            if (out.usage.turns > 0) await recordUsage(env.DB, { kind: "night_check", ...out.usage, store_id: st.id }, { findings: out.findings.length, steps: out.path.map((p) => p.step) });
+            else console.log(JSON.stringify({ job: "night_check", store_id: st.id, skipped: "no_entries" }));
           }
         } else {
           const out = await runMorning(env.DB, job.scheduledAt, { slack: env.SLACK_BOT_TOKEN ? slackClient(env.SLACK_BOT_TOKEN) : null });
