@@ -85,9 +85,20 @@ describe("GET /usage", () => {
       "INSERT INTO claude_usage (id, kind, model, input_tokens, output_tokens, images, truncated) VALUES ('u1', 'structure', 'claude-sonnet-5-5', 1800, 200, 1, 0), ('u2', 'structure', 'claude-sonnet-5-5', 2200, 300, 1, 1), ('u3', 'handoff_agent', 'claude-opus-5-5', 3000, 150, 0, 0)",
     ).run();
     const html = await (await get("/usage")).text();
-    expect(html).toContain("報告の構造化(写真つき)");
+    expect(html).toContain("報告の構造化(写真・文)");
     expect(html).toMatch(/2回 \/ 1回あたり 入力 2,000・出力 250 トークン(<!-- -->)? \/ 写真 1枚(<!-- -->)? \/ 上限で切れた 1回/);
     expect(html).toContain("引き継ぎ帳");
+  });
+
+  it("写真を読む呼び出しは、写真の枚数ごとにも出す(文だけの投稿と混ぜない)", async () => {
+    await proxy.env.DB.prepare(
+      "INSERT INTO claude_usage (id, kind, model, input_tokens, output_tokens, images, truncated) VALUES ('u4', 'structure', 'claude-sonnet-5-5', 1000, 100, 0, 0), ('u5', 'structure', 'claude-sonnet-5-5', 3500, 400, 2, 0)",
+    ).run();
+    const html = (await (await get("/usage")).text()).replace(/<!-- -->/g, "");
+    expect(html).toContain("写真0枚: 1回 / 1回あたり 入力 1,000・出力 100 トークン");
+    expect(html).toContain("写真1枚: 2回 / 1回あたり 入力 2,000・出力 250 トークン");
+    expect(html).toContain("写真2枚: 1回 / 1回あたり 入力 3,500・出力 400 トークン");
+    expect(html).not.toContain("写真0枚: 1回 / 1回あたり 入力 3,000"); // 引き継ぎ帳(写真を読まない)は枚数ごとに出さない
   });
 });
 
