@@ -42,13 +42,13 @@ usage.get("/usage", async (c) => {
   return c.html(
     <Layout title="Claude の消費">
       <header>
-        {c.env.ENVIRONMENT === "demo" && <span class="badge demo">デモ(架空のデータ)</span>}
+        {c.env.ENVIRONMENT === "demo" && <span class="pill demo">デモ(架空のデータ)</span>}
         <h1>Claude の消費</h1>
         <div class="meta">
           呼び出し {total.n}回 / 入力 {total.i.toLocaleString()} / 出力 {total.o.toLocaleString()} トークン
         </div>
       </header>
-      <section class="card">
+      <section class="card plain">
         {results.length === 0 ? (
           <p class="empty">まだ記録がありません。</p>
         ) : (
