@@ -23,14 +23,17 @@ function hm(iso: string | null | undefined): string {
   return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
 }
 
-function reason(evidence: string | null | undefined): string | null {
+// 下書きの右に小さく出す理由。分数は判断経路と同じく、突き合わせた時刻(checked_at)と解錠時刻の実際の経過時間。
+// checked_at がなければ分数は出さない(閾値の 120分を出すと、判断経路の「150分たっても」と食い違う)
+export function draftReason(evidence: string | null | undefined): string | null {
   try {
-    const e = JSON.parse(evidence ?? "{}") as { unlocked_at?: string; threshold_minutes?: number };
-    if (e.unlocked_at) return `${hm(e.unlocked_at)} に入室、${e.threshold_minutes ?? 120}分たっても報告がない`;
+    const e = JSON.parse(evidence ?? "{}") as { unlocked_at?: string; checked_at?: string };
+    if (!e.unlocked_at) return null;
+    const elapsed = e.checked_at ? Math.floor((Date.parse(e.checked_at) - Date.parse(e.unlocked_at)) / 60000) : NaN;
+    return Number.isFinite(elapsed) && elapsed >= 0 ? `${hm(e.unlocked_at)} に入室、${elapsed}分たっても報告がない` : `${hm(e.unlocked_at)} に入室、そのあとの報告がない`;
   } catch {
-    /* 省く */
+    return null;
   }
-  return null;
 }
 
 export function ApprovalsSection(props: { storeId: string; drafts: DraftRow[]; candidates: RuleRow[]; closedDays?: string | null; sent?: SentRow | null }) {
@@ -70,7 +73,7 @@ export function ApprovalsSection(props: { storeId: string; drafts: DraftRow[]; c
 
       {props.drafts.length > 0 && <h2 class="hint" style="margin:0 0 8px">承認待ちの下書き</h2>}
       {props.drafts.map((d) => {
-        const why = reason(d.evidence);
+        const why = draftReason(d.evidence);
         return (
           <div class="card">
             <div>

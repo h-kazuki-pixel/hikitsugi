@@ -209,7 +209,8 @@ export function FindingDetail(props: { f: FindingRow }) {
                   <span class={`pill ${cls}`}>{ROLE_LABEL[role]}</span>
                 </td>
                 <td class="step">{s.step}</td>
-                <td>{role === "system" ? s.detail : <span class={`box ${cls}`}>{s.detail}</span>}</td>
+                {/* 枠で囲むのは Claude が判断した行と人の言葉だけ。ツールの読み取り(「1件」「6人」)はコードが数えた事実なので灰の文字 */}
+                <td>{role === "system" || role === "ai_tool" ? <span class="sub-text">{s.detail}</span> : <span class={`box ${cls}`}>{s.detail}</span>}</td>
               </tr>
             );
           })}

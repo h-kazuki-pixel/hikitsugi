@@ -84,6 +84,7 @@ table.path tr:last-child td{border-bottom:0}
 table.path td.no{color:var(--faint);width:34px}
 table.path td.who{width:118px}
 table.path td.step{width:132px;font-weight:500;white-space:nowrap}
+.sub-text{color:var(--sub)}
 .box{display:block;padding:5px 10px;border-radius:6px}
 .box.ai{background:var(--ai-wash);border:1px solid var(--ai-line)}
 .box.hu{background:var(--hu-wash);border:1px solid var(--hu-line)}
