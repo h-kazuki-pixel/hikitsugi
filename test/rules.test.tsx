@@ -64,6 +64,7 @@ describe("POST /stores/:id/rules", () => {
       condition: '{"area_unreported_days":{"area":"トイレ","days_in_a_row":2}}',
     });
 
+    // 候補は承認待ちに出る(省略時も承認待ちがあればそこが開く)
     let html = await (await app.request("/stores/tenjin", {}, env())).text();
     expect(html).toContain("この読み取りで有効にしますか");
     expect(html).toContain("天神店のトイレの報告がない日が2日続いたら、副担当に定時で知らせる");
@@ -71,8 +72,9 @@ describe("POST /stores/:id/rules", () => {
     expect(html).toContain("有効にしない"); // 引き継ぎ帳の候補の「引き継ぎ帳の答えだけにする」ではない(ほかのテストの候補が同じページに出ることがあるので、無いことは確かめない)
 
     await app.request(`/rules/${r!.id}/approve`, form({ store: "tenjin" }), env());
-    html = await (await app.request("/stores/tenjin", {}, env())).text();
+    html = await (await app.request("/stores/tenjin?view=approvals", {}, env())).text();
     expect(html).not.toContain("この読み取りで有効にしますか");
+    html = await (await app.request("/stores/tenjin?view=rules", {}, env())).text();
     expect(html).toContain("「トイレの報告がない日が2日続いたら、副担当に知らせて」");
     expect(html).toContain("由来: オーナーが追加");
   });

@@ -37,11 +37,12 @@ function items(json: string): string[] {
 export function SuppliesSection(props: { rows: SupplyRow[] }) {
   const rows = props.rows.map((r) => ({ ...r, items: items(r.supplies_out) })).filter((r) => r.items.length > 0);
   return (
-    <section class="card" aria-labelledby="supplies-title">
-      <h2 id="supplies-title">
-        備品切れ(報告から) <span class="meta" style="display:inline">直近{DAYS}日</span>
-      </h2>
-      <p class="meta">発注はこれまでどおり発注リクエストフォームから。ここは見比べるための一覧で、通知はしません。</p>
+    <div class="pane">
+      <div class="ph">
+        <h1>備品切れ(報告から)</h1>
+        <span class="cnt">直近{DAYS}日</span>
+      </div>
+      <p class="lead">発注はこれまでどおり発注リクエストフォームから。ここは見比べるための一覧で、通知はしません。</p>
       {rows.length === 0 ? (
         <p class="empty">直近{DAYS}日の報告に、備品切れはありません。</p>
       ) : (
@@ -56,6 +57,6 @@ export function SuppliesSection(props: { rows: SupplyRow[] }) {
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 }

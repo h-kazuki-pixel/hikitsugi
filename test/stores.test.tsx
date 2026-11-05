@@ -15,7 +15,7 @@ const get = (path: string) => app.request(path, {}, proxy.env);
 
 describe("GET /stores/:id", () => {
   it("店舗名と空の今日のボードを、スマホ向けの日本語ページで返す", async () => {
-    const res = await get("/stores/tenjin");
+    const res = await get("/stores/tenjin?view=board");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     const html = await res.text();
@@ -26,20 +26,25 @@ describe("GET /stores/:id", () => {
     expect(html).toContain("今日のボード");
     expect(html).toContain(jstDate().label);
     expect(html).toContain("今日のボードはまだありません");
-    expect(html).toContain("デモ(架空のデータ)");
+    expect(html).toContain("デモ環境(架空のデータ)");
+    // 区画を分けた枠(25・30): 左のナビに各区画、上のバーにパンくず
+    expect(html).toContain('href="/stores/tenjin?view=findings"');
+    expect(html).toContain("<b>今日のボード</b>");
   });
 
   it("週次巡回の店も開ける", async () => {
-    const html = await (await get("/stores/yakuin")).text();
+    const html = await (await get("/stores/yakuin?view=board")).text();
     expect(html).toContain("サンプル自習室 薬院店");
     expect(html).toContain("週次巡回の店");
   });
 
   it("面談のルール1〜5は全店のルールなので、どちらの店のルール一覧にも出る", async () => {
     for (const store of ["tenjin", "yakuin"]) {
-      const html = await (await get(`/stores/${store}`)).text();
+      const html = await (await get(`/stores/${store}?view=rules`)).text();
       for (const no of [1, 2, 3, 4, 5]) expect(html, `${store} のルール${no}`).toContain(`ルール${no}「`);
       expect(html).toContain("ルール5「薬院店は週1回の巡回でいい。天神店は週4回」");
+      // 実行まで動くのは「下書きを作る」(2)と「判断の基準にする」だけ。ほかは登録のみと出す(README「限界」)
+      expect(html).toContain("登録のみ(まだ実行しない)");
     }
   });
 
@@ -50,7 +55,7 @@ describe("GET /stores/:id", () => {
     )
       .bind(today, today, today)
       .run();
-    const html = await (await get("/stores/tenjin")).text();
+    const html = await (await get("/stores/tenjin?view=board")).text();
     expect(html).toMatch(/トイレ<\/span><span class="status pending">未清掃/);
     expect(html).toMatch(/ゴミ置き場<\/span><span class="status carried_over">繰り越し/);
     expect(html).toMatch(/ドリンク周り<\/span><span class="status done">完了(<!-- -->)?\(本人の申告\)/);
@@ -124,7 +129,7 @@ describe("備品切れ(報告から)", () => {
   });
 
   it("直近7日の報告の備品切れを、品目と報告した人で並べる。通知はしないと書く", async () => {
-    const html = await (await app.request("/stores/yakuin", {}, proxy.env)).text();
+    const html = await (await app.request("/stores/yakuin?view=supplies", {}, proxy.env)).text();
     expect(html).toContain("備品切れ(報告から)");
     expect(html).toContain("架空のトイレットペーパー、架空の紙コップ");
     expect(html).toContain("そうたさんの報告");
@@ -133,7 +138,7 @@ describe("備品切れ(報告から)", () => {
   });
 
   it("なければ、ないと出す", async () => {
-    const html = await (await app.request("/stores/tenjin", {}, proxy.env)).text();
+    const html = await (await app.request("/stores/tenjin?view=supplies", {}, proxy.env)).text();
     expect(html).toContain("備品切れ(報告から)");
   });
 });

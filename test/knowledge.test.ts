@@ -230,7 +230,7 @@ describe("知らない質問 → 確認中 → オーナーに一度だけ → �
 });
 
 describe("判断の答えはルール候補になり、承認でだけ有効になる(約束2)", () => {
-  const page = async () => (await app.request("/stores/tenjin", {}, proxy.env)).text();
+  const page = async (view = "approvals") => (await app.request(`/stores/tenjin?view=${view}`, {}, proxy.env)).text();
   const post = (path: string) =>
     app.request(path, { method: "POST", body: new URLSearchParams({ store: "tenjin" }), headers: { "content-type": "application/x-www-form-urlencoded" } }, proxy.env);
 
@@ -249,11 +249,11 @@ describe("判断の答えはルール候補になり、承認でだけ有効に�
     const r = (await db().prepare("SELECT id FROM rules WHERE rule_no = 6").first<{ id: string }>())!;
     const res = await post(`/rules/${r.id}/approve`);
     expect(res.status).toBe(303);
-    expect(res.headers.get("location")).toBe("/stores/tenjin#rules-title");
+    expect(res.headers.get("location")).toBe("/stores/tenjin?view=rules");
     expect(await db().prepare("SELECT status FROM rules WHERE id = ?").bind(r.id).first()).toEqual({ status: "active" });
 
-    const html = await page();
-    expect(html).not.toContain("この答えをルールにしますか");
+    expect(await page()).not.toContain("この答えをルールにしますか");
+    const html = await page("rules");
     // スタッフの質問から生まれたルールは、面談のルールと見分けられるように出す
     expect(html.replace(/<!-- -->/g, "")).toContain("スタッフの質問から: 11/7(土・休業日) みおさんの質問 → 11/8(日) デモオーナーの答え");
     expect(html).toContain("由来: 立ち上げ面談");
@@ -338,10 +338,12 @@ describe("翌週の清掃報告: 承認したルールに照らして検出し�
     expect(path[5]!.detail).toBe("はるとさんのスレッドに、みおさんの質問へのオーナーの答えを、原文のまま返した。オーナーにも知らせた");
     expect(path.filter((p) => p.key).map((p) => p.step)).toEqual(["ルール6に該当", "元になった質問"]);
 
-    const html = (await (await app.request("/stores/tenjin", {}, proxy.env)).text()).replace(/<!-- -->/g, "");
+    const html = (await (await app.request("/stores/tenjin?view=findings", {}, proxy.env)).text()).replace(/<!-- -->/g, "");
     expect(html).toContain("ルール6に該当 — はるとさんの報告(11/12 19:30)");
     expect(html).toContain("11/7(土・休業日) みおさん「席に財布");
-    expect(html).toContain('<li class="key"><strong>元になった質問</strong>');
+    // 判断経路は表。key の行は太字、担い手は Claude / 人の言葉 / 仕組み
+    expect(html).toContain('<tr class="key"><td class="no">4</td><td class="who"><span class="pill hu">人の言葉</span></td><td class="step">元になった質問</td>');
+    expect(html).toContain('<td class="step">見えたこと</td><td><span class="box ai">');
   });
 });
 
