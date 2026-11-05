@@ -10,7 +10,9 @@ export const drafts = new Hono<{ Bindings: Env }>();
 // Slack(テストでは差し替える)
 export const draftDeps: { slack: (token: string) => SlackClient } = { slack: slackClient };
 
-const back = (store: unknown) => (typeof store === "string" && /^[a-z0-9_-]{1,64}$/.test(store) ? `/stores/${store}#drafts-title` : "/");
+// 操作した区画(承認待ち)に戻る。承認して送れたときは &sent=<id> を付け、送信済みの行とトーストを出す(読むだけ)
+const back = (store: unknown, sentId?: string) =>
+  typeof store === "string" && /^[a-z0-9_-]{1,64}$/.test(store) ? `/stores/${store}?view=approvals${sentId ? `&sent=${sentId}` : ""}` : "/";
 
 drafts.post("/drafts/:id/:decision{send|reject}", async (c) => {
   const id = c.req.param("id");
@@ -45,5 +47,5 @@ drafts.post("/drafts/:id/:decision{send|reject}", async (c) => {
   )
     .bind(now, owner.id, now, id)
     .run();
-  return c.redirect(back(form.store), 303);
+  return c.redirect(back(form.store, id), 303);
 });

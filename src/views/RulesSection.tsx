@@ -1,7 +1,8 @@
-// 店舗ページのルール欄: ルール候補(承認の一押し)と、有効なルールの一覧(由来つき)
+// 店舗ページのルール一覧(由来つき)と「ルールを足す」。候補の承認は承認待ち(DraftsSection の CandidateCard)にある
 // 面談(seed)で入れたルールと、引き継ぎ帳の「判断」の答えから承認で生まれたルールが同じ一覧に並ぶ(設計書 5-3)
 import { dayLabel } from "../lib/time";
-import { ACTION_LABEL, RECIPIENT_LABEL, URGENCY_LABEL } from "../rules/structure";
+import type { ACTION_LABEL, RECIPIENT_LABEL, URGENCY_LABEL } from "../rules/structure";
+import { isExecutedAction } from "./path-roles";
 
 export type RuleRow = {
   id: string;
@@ -38,100 +39,49 @@ export function originLabel(r: RuleRow): string {
 
 // closedDays: 店舗の休業日(日付に「休業日」を添えるため)
 export function RulesSection(props: { storeId: string; rules: RuleRow[]; closedDays?: string | null }) {
-  const candidates = props.rules.filter((r) => r.status === "candidate");
   const active = props.rules.filter((r) => r.status === "active");
   return (
-    <>
-      {candidates.length > 0 && (
-        <section class="card" aria-labelledby="candidates-title">
-          <h2 id="candidates-title">ルール候補</h2>
-          <ul class="rules">
-            {candidates.map((r) => (
-              <li>
-                <p class="rule-ask">{r.origin === "knowledge" ? "この答えをルールにしますか" : "この読み取りで有効にしますか"}</p>
-                <p class="rule-text">
+    <div class="pane">
+      <div class="ph">
+        <h1>ルール</h1>
+        <span class="cnt">有効 {active.length}件</span>
+      </div>
+      <p class="lead">立ち上げ面談で決めたものと、スタッフの質問への答えから生まれたものが、同じ一覧に並びます。</p>
+      {active.length === 0 ? (
+        <p class="empty">有効なルールはまだありません。</p>
+      ) : (
+        <ul class="rules">
+          {active.map((r) => (
+            <li>
+              <p class="rule-text">
+                <span>
                   ルール{r.rule_no}「{r.natural_text}」
+                </span>
+                {r.store_id === null && <span class="pill gray">全店</span>}
+                {!isExecutedAction(r.action) && <span class="pill gray">登録のみ(まだ実行しない)</span>}
+              </p>
+              {r.origin === "knowledge" ? (
+                // スタッフの質問から生まれたルールは、面談のルールと見分けられるように目立たせる
+                <p class="origin-key">
+                  スタッフの質問から: {dayLabel(r.asked_at, props.closedDays)} {r.asked_by ?? "スタッフ"}さんの質問 → {dayLabel(r.answered_at, props.closedDays)}{" "}
+                  {r.answered_by ?? "オーナー"}の答え
                 </p>
-                {r.origin === "knowledge" ? (
-                  <dl class="rule-src">
-                    <dt>質問</dt>
-                    <dd>
-                      {r.question}({dayLabel(r.asked_at, props.closedDays)} {r.asked_by}さん)
-                    </dd>
-                    <dt>答え</dt>
-                    <dd>
-                      {r.answer}({dayLabel(r.answered_at, props.closedDays)} {r.answered_by})
-                    </dd>
-                  </dl>
-                ) : (
-                  <dl class="rule-src">
-                    <dt>読み取り</dt>
-                    <dd>{r.reading}</dd>
-                    <dt>動作</dt>
-                    <dd>
-                      {ACTION_LABEL[r.action]}
-                      {r.recipient ? ` / 宛先: ${RECIPIENT_LABEL[r.recipient]}` : ""} / {URGENCY_LABEL[r.urgency]}
-                    </dd>
-                    <dt>条件</dt>
-                    <dd>
-                      <code>{r.condition}</code>
-                    </dd>
-                    {r.unclear && (
-                      <>
-                        <dt>未確定</dt>
-                        <dd>{r.unclear}</dd>
-                      </>
-                    )}
-                  </dl>
-                )}
-                <div class="actions">
-                  <form method="post" action={`/rules/${r.id}/approve`}>
-                    <input type="hidden" name="store" value={props.storeId} />
-                    <button type="submit" class="primary">
-                      承認してルールにする
-                    </button>
-                  </form>
-                  <form method="post" action={`/rules/${r.id}/reject`}>
-                    <input type="hidden" name="store" value={props.storeId} />
-                    <button type="submit">{r.origin === "knowledge" ? "引き継ぎ帳の答えだけにする" : "有効にしない"}</button>
-                  </form>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
+              ) : (
+                <p class="origin">由来: {originLabel(r)}</p>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
-      <section class="card" aria-labelledby="rules-title">
-        <h2 id="rules-title">ルール一覧</h2>
-        {active.length === 0 ? (
-          <p class="empty">有効なルールはまだありません。</p>
-        ) : (
-          <ul class="rules">
-            {active.map((r) => (
-              <li>
-                <p class="rule-text">
-                  ルール{r.rule_no}「{r.natural_text}」{r.store_id === null && <span class="badge">全店</span>}
-                </p>
-                {r.origin === "knowledge" ? (
-                  // スタッフの質問から生まれたルールは、面談のルールと見分けられるように目立たせる
-                  <p class="origin-key">
-                    スタッフの質問から: {dayLabel(r.asked_at, props.closedDays)} {r.asked_by ?? "スタッフ"}さんの質問 → {dayLabel(r.answered_at, props.closedDays)}{" "}
-                    {r.answered_by ?? "オーナー"}の答え
-                  </p>
-                ) : (
-                  <p class="meta">由来: {originLabel(r)}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        <form method="post" action={`/stores/${props.storeId}/rules`} class="add-rule">
-          <label for="rule-text">ルールを足す(ふだんの言葉で)</label>
-          <textarea id="rule-text" name="text" rows={2} maxlength={200} required placeholder="例: トイレの報告がない日が2日続いたら、副担当に知らせて" />
-          <button type="submit">読み取ってもらう</button>
-        </form>
-      </section>
-    </>
+      <form method="post" action={`/stores/${props.storeId}/rules`} class="add-rule">
+        <label for="rule-text">ルールを足す(ふだんの言葉で)</label>
+        <textarea id="rule-text" name="text" rows={2} maxlength={200} required placeholder="例: トイレの報告がない日が2日続いたら、副担当に知らせて" />
+        <button type="submit" class="btn">
+          読み取ってもらう
+        </button>
+        <span class="hint">Claude が読み取った内容を承認待ちに出します。承認するまで有効になりません。</span>
+      </form>
+    </div>
   );
 }
 

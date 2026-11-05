@@ -30,14 +30,14 @@ demo.post("/demo/stores/:id/entry", async (c) => {
   )
     .bind(crypto.randomUUID(), storeId, staffId, unlockedAt, new Date().toISOString())
     .run();
-  return c.redirect(`/stores/${storeId}#demo-title`, 303);
+  return c.redirect(`/stores/${storeId}?view=demo`, 303);
 });
 
 demo.post("/demo/stores/:id/night", async (c) => {
   const storeId = c.req.param("id");
   if (!storeOk(storeId)) return c.text("Not Found", 404);
   await c.env.JOBS.send({ type: "cron", slot: "night", scheduledAt: new Date().toISOString(), storeId });
-  return c.redirect(`/stores/${storeId}#findings-title`, 303);
+  return c.redirect(`/stores/${storeId}?view=approvals`, 303);
 });
 
 // 朝の定時を今動かす: 朝の要約は全店で1通(オーナー宛て)なので、店を絞らずに積む。Cron と同じくキューに積むだけ
@@ -45,5 +45,5 @@ demo.post("/demo/stores/:id/morning", async (c) => {
   const storeId = c.req.param("id");
   if (!storeOk(storeId)) return c.text("Not Found", 404);
   await c.env.JOBS.send({ type: "cron", slot: "morning", scheduledAt: new Date().toISOString() });
-  return c.redirect(`/stores/${storeId}#demo-title`, 303);
+  return c.redirect(`/stores/${storeId}?view=demo`, 303);
 });

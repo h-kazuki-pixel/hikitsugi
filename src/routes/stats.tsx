@@ -86,19 +86,19 @@ export function StatsPage(props: { s: Stats; isDemo: boolean }) {
   return (
     <Layout title="実稼働の数字">
       <header>
-        {props.isDemo && <span class="badge demo">デモ(架空のデータ)</span>}
+        {props.isDemo && <span class="pill demo">デモ(架空のデータ)</span>}
         <h1>実稼働の数字</h1>
         <p class="meta">動かし始めてからの合計。件数だけで、本文は出しません。テスト用の店舗は数えません。</p>
       </header>
 
-      <section class="card" aria-labelledby="stats-report">
+      <section class="card plain" aria-labelledby="stats-report">
         <h2 id="stats-report">報告</h2>
         <ul class="board">
           <Row label="清掃報告" value={s.reports} note="5分以内の二重送信は1件にまとめて数える" />
         </ul>
       </section>
 
-      <section class="card" aria-labelledby="stats-recheck">
+      <section class="card plain" aria-labelledby="stats-recheck">
         <h2 id="stats-recheck">写真で要確認</h2>
         <ul class="board">
           <Row label="要確認になった箇所" value={s.recheck.flagged} note="清掃後の写真に汚れ・ゴミが見えた" />
@@ -109,7 +109,7 @@ export function StatsPage(props: { s: Stats; isDemo: boolean }) {
         </ul>
       </section>
 
-      <section class="card" aria-labelledby="stats-handoff">
+      <section class="card plain" aria-labelledby="stats-handoff">
         <h2 id="stats-handoff">引き継ぎ帳</h2>
         <ul class="board">
           <Row label="出典つきで答えた質問" value={s.handoff.answered} />
@@ -121,7 +121,7 @@ export function StatsPage(props: { s: Stats; isDemo: boolean }) {
         </ul>
       </section>
 
-      <section class="card" aria-labelledby="stats-unreported">
+      <section class="card plain" aria-labelledby="stats-unreported">
         <h2 id="stats-unreported">入室したのに報告なし</h2>
         <ul class="board">
           <Row label="検出した" value={s.unreported.detected} note="遅れて届いた報告で取り下げたものを含む" />

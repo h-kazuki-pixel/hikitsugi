@@ -113,11 +113,15 @@ describe("夜の突き合わせ", () => {
   });
 
   it("店舗ページに承認待ちの下書きと判断経路が出て、承認すると本人に DM で届く", async () => {
+    // 承認待ち(省略時も、承認待ちがあればそこが開く)と、検出事項の判断経路
     const html = await (await app.request("/stores/tenjin", {}, proxy.env)).text();
     expect(html).toContain("承認待ちの下書き");
     expect(html).toContain("あおいさんへの声かけ");
-    expect(html).toContain("報告が届いていない");
-    expect(html).toContain("ルール2に該当");
+    const findings = await (await app.request("/stores/tenjin?view=findings", {}, proxy.env)).text();
+    expect(findings).toContain("報告が届いていない");
+    expect(findings).toContain("ルール2に該当");
+    // 判断経路の担い手: ツールの読み取りは Claude(ツール)、ルールの選択は Claude
+    expect(findings).toContain("Claude(ツール)");
 
     const sent: { channel: string; text: string }[] = [];
     draftDeps.slack = () => ({
@@ -197,7 +201,7 @@ describe("デモの操作(demo 環境だけ)", () => {
   });
 
   it("店舗ページにデモの操作が出る", async () => {
-    const html = await (await app.request("/stores/tenjin", {}, proxy.env)).text();
+    const html = await (await app.request("/stores/tenjin?view=demo", {}, proxy.env)).text();
     expect(html).toContain("入室を模擬する");
     expect(html).toContain("夜の突き合わせ");
     expect(html).toContain("朝の定時をいま動かす");
@@ -207,7 +211,7 @@ describe("デモの操作(demo 環境だけ)", () => {
   it("朝の定時をいま動かすと、キューに積んで店舗ページに戻る。production では動かない", async () => {
     const res = await post("/demo/stores/tenjin/morning", {});
     expect(res.status).toBe(303);
-    expect(res.headers.get("location")).toBe("/stores/tenjin#demo-title");
+    expect(res.headers.get("location")).toBe("/stores/tenjin?view=demo");
     const prod = await app.request("/demo/stores/tenjin/morning", { method: "POST" }, { ...proxy.env, ENVIRONMENT: "production" as const });
     expect([403, 404]).toContain(prod.status);
   });
