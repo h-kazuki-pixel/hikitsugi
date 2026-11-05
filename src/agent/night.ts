@@ -14,6 +14,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { AGENT_MODEL, type ModelCall } from "../knowledge/agent";
 import { ruleOrigin } from "../rules/origin";
+import { ruleAppliesSql } from "../rules/scope";
 
 const MAX_TURNS = 8;
 const JST = 9 * 60 * 60 * 1000;
@@ -128,10 +129,10 @@ export async function runNightCheck(db: D1Database, ctx: Ctx, deps: { call: Mode
              LEFT JOIN staff ks ON ks.id = k.asked_by_staff_id
              LEFT JOIN knowledge_answers a ON a.id = r.origin_answer_id
              LEFT JOIN staff s ON s.id = a.answered_by_staff_id
-            WHERE r.status = 'active' AND (r.store_id = ? OR r.store_id IS NULL)
+            WHERE r.status = 'active' AND ${ruleAppliesSql("r")}
             ORDER BY r.rule_no`,
         )
-        .bind(ctx.storeId)
+        .bind(ctx.storeId, ctx.storeId)
         .all<{
           id: string;
           rule_no: number;

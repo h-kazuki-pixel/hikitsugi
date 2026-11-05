@@ -5,7 +5,8 @@ import { recordUsage } from "../lib/usage";
 import { claudeRuleStructurer, type RuleStructurer } from "../rules/structure";
 import { DRAFTS_QUERY, SENT_DRAFT_QUERY, type DraftRow, type SentRow } from "../views/DraftsSection";
 import { FINDINGS_QUERY, type FindingRow } from "../views/FindingsSection";
-import { RULES_QUERY, type RuleRow } from "../views/RulesSection";
+import { RULES_QUERY, type RuleRow, type StoreOption } from "../views/RulesSection";
+import { parseScopeChoice, scopeOf, scopeStatements, scopeStoresSql } from "../rules/scope";
 import { SUPPLIES_QUERY, suppliesSince, type SupplyRow } from "../views/SuppliesSection";
 import { NotFoundPage, pickView, StoreListPage, StorePage, type BoardRow, type StoreRow } from "../views/StorePage";
 
@@ -45,7 +46,8 @@ stores.get("/stores/:id", async (c) => {
     .bind(id, today.iso)
     .all<BoardRow>();
 
-  const { results: rules } = await c.env.DB.prepare(RULES_QUERY).bind(id).all<RuleRow>();
+  const { results: rules } = await c.env.DB.prepare(RULES_QUERY).bind(id, id).all<RuleRow>();
+  const { results: allStores } = await c.env.DB.prepare("SELECT id, name FROM stores ORDER BY name").all<StoreOption>();
   const { results: findings } = await c.env.DB.prepare(FINDINGS_QUERY).bind(id).all<FindingRow>();
   const { results: drafts } = await c.env.DB.prepare(DRAFTS_QUERY).bind(id).all<DraftRow>();
   const { results: supplies } = await c.env.DB.prepare(SUPPLIES_QUERY).bind(id, suppliesSince()).all<SupplyRow>();
@@ -77,6 +79,7 @@ stores.get("/stores/:id", async (c) => {
       ownerName={owner?.display_name ?? null}
       selectedFindingId={selected && ID.test(selected) ? selected : null}
       sent={sent}
+      allStores={allStores}
     />,
   );
 });
@@ -114,24 +117,59 @@ stores.post("/stores/:id/rules", async (c) => {
   return c.redirect(`/stores/${id}?view=approvals`, 303);
 });
 
+const storeIds = async (db: D1Database) => (await db.prepare("SELECT id FROM stores").all<{ id: string }>()).results.map((s) => s.id);
+
 // ルール候補の承認・却下(承認の一押し)。有効にするのはここだけ(仕様 2章「承認なしに有効にはならない」)
+// 承認のときに適用する店を選ぶ(checkbox name="stores"。"all" か店の id)。どの店にもチェックがない承認は受けない
 // production ではオーナー画面ごと Cloudflare Access の背後にある
 stores.post("/rules/:id/:decision{approve|reject}", async (c) => {
   const id = c.req.param("id");
   const decision = c.req.param("decision");
-  const form = await c.req.parseBody();
+  const form = await c.req.parseBody({ all: true });
   const store = typeof form.store === "string" && /^[a-z0-9_-]{1,64}$/.test(form.store) ? form.store : null;
   if (!ID.test(id)) return c.html(<NotFoundPage />, 404);
+  const back = (view: string) => c.redirect(store ? `/stores/${store}?view=${view}` : "/", 303);
 
-  const res =
-    decision === "approve"
-      ? await c.env.DB.prepare(
-          "UPDATE rules SET status = 'active', activated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND status = 'candidate'",
-        )
-          .bind(id)
-          .run()
-      : await c.env.DB.prepare("UPDATE rules SET status = 'inactive' WHERE id = ? AND status = 'candidate'").bind(id).run();
-  console.log(JSON.stringify({ rule: id, decision, changed: res.meta.changes ?? 0 }));
-  // 承認したらルール一覧(有効になったのが見える)、却下したら承認待ちに戻る
-  return c.redirect(store ? `/stores/${store}?view=${decision === "approve" ? "rules" : "approvals"}` : "/", 303);
+  if (decision === "reject") {
+    const res = await c.env.DB.prepare("UPDATE rules SET status = 'inactive' WHERE id = ? AND status = 'candidate'").bind(id).run();
+    console.log(JSON.stringify({ rule: id, decision, changed: res.meta.changes ?? 0 }));
+    return back("approvals");
+  }
+
+  const scope = parseScopeChoice(form.stores, await storeIds(c.env.DB));
+  if (!scope) {
+    console.log(JSON.stringify({ rule: id, decision, changed: 0, reason: "no_store_selected" }));
+    return back("approvals");
+  }
+  const candidate = await c.env.DB.prepare("SELECT id FROM rules WHERE id = ? AND status = 'candidate'").bind(id).first();
+  if (!candidate) return back("approvals");
+  await c.env.DB.batch([
+    ...scopeStatements(c.env.DB, id, scope),
+    c.env.DB.prepare("UPDATE rules SET status = 'active', activated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND status = 'candidate'").bind(id),
+  ]);
+  console.log(JSON.stringify({ rule: id, decision, changed: 1, scope }));
+  // 承認したらルール一覧(有効になったのが見える)
+  return back("rules");
+});
+
+// 有効なルールの適用する店を、あとから変える(ルール一覧の「適用する店を変える」)。前後を JSON でログに残す
+stores.post("/rules/:id/stores", async (c) => {
+  const id = c.req.param("id");
+  const form = await c.req.parseBody({ all: true });
+  const store = typeof form.store === "string" && /^[a-z0-9_-]{1,64}$/.test(form.store) ? form.store : null;
+  if (!ID.test(id)) return c.html(<NotFoundPage />, 404);
+  const back = () => c.redirect(store ? `/stores/${store}?view=rules` : "/", 303);
+
+  const before = await c.env.DB.prepare(`SELECT store_id, ${scopeStoresSql("r")} AS scope_store_ids FROM rules r WHERE r.id = ? AND r.status = 'active'`)
+    .bind(id)
+    .first<{ store_id: string | null; scope_store_ids: string | null }>();
+  if (!before) return back();
+  const scope = parseScopeChoice(form.stores, await storeIds(c.env.DB));
+  if (!scope) {
+    console.log(JSON.stringify({ rule: id, scope_change: "rejected", reason: "no_store_selected" }));
+    return back();
+  }
+  await c.env.DB.batch(scopeStatements(c.env.DB, id, scope));
+  console.log(JSON.stringify({ rule: id, scope_change: "ok", before: scopeOf(before), after: scope }));
+  return back();
 });

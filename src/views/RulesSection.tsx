@@ -3,6 +3,8 @@
 import { dayLabel } from "../lib/time";
 import type { ACTION_LABEL, RECIPIENT_LABEL, URGENCY_LABEL } from "../rules/structure";
 import { isExecutedAction } from "./path-roles";
+import { ruleAppliesSql, scopeLabel, scopeOf, scopeStoresSql } from "../rules/scope";
+import { IconCheck } from "./icons";
 
 export type RuleRow = {
   id: string;
@@ -23,7 +25,10 @@ export type RuleRow = {
   condition: string;
   reading: string | null;
   unclear: string | null;
+  scope_store_ids?: string | null; // rule_stores の店(カンマ区切り。なければ NULL)
 };
+
+export type StoreOption = { id: string; name: string };
 
 function md(iso: string | null): string {
   if (!iso) return "";
@@ -38,7 +43,27 @@ export function originLabel(r: RuleRow): string {
 }
 
 // closedDays: 店舗の休業日(日付に「休業日」を添えるため)
-export function RulesSection(props: { storeId: string; rules: RuleRow[]; closedDays?: string | null }) {
+// 適用する店のチェックボックス(候補の承認と、あとから変えるときの両方で使う)。いちばん上に「全店(これから増える店も)」
+export function ScopeChoice(props: { stores: StoreOption[]; checked: Set<string>; allChecked: boolean; idPrefix: string }) {
+  return (
+    <fieldset class="scope">
+      <legend>適用する店</legend>
+      <label>
+        <input type="checkbox" name="stores" value="all" checked={props.allChecked} />
+        全店(これから増える店も)
+      </label>
+      {props.stores.map((s) => (
+        <label>
+          <input type="checkbox" name="stores" value={s.id} checked={props.checked.has(s.id)} />
+          {s.name}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+export function RulesSection(props: { storeId: string; rules: RuleRow[]; closedDays?: string | null; stores?: StoreOption[] }) {
+  const stores = props.stores ?? [];
   const active = props.rules.filter((r) => r.status === "active");
   return (
     <div class="pane">
@@ -57,7 +82,7 @@ export function RulesSection(props: { storeId: string; rules: RuleRow[]; closedD
                 <span>
                   ルール{r.rule_no}「{r.natural_text}」
                 </span>
-                {r.store_id === null && <span class="pill gray">全店</span>}
+                <span class="pill gray">{scopeLabel(scopeOf(r), stores)}</span>
                 {!isExecutedAction(r.action) && <span class="pill gray">登録のみ(まだ実行しない)</span>}
               </p>
               {r.origin === "knowledge" ? (
@@ -68,6 +93,19 @@ export function RulesSection(props: { storeId: string; rules: RuleRow[]; closedD
                 </p>
               ) : (
                 <p class="origin">由来: {originLabel(r)}</p>
+              )}
+              {stores.length > 0 && (
+                <details class="scope-edit">
+                  <summary>適用する店を変える</summary>
+                  <form method="post" action={`/rules/${r.id}/stores`}>
+                    <input type="hidden" name="store" value={props.storeId} />
+                    <ScopeChoice stores={stores} checked={new Set(scopeOf(r).kind === "stores" ? (scopeOf(r) as { storeIds: string[] }).storeIds : [])} allChecked={scopeOf(r).kind === "all"} idPrefix={r.id} />
+                    <button type="submit" class="btn">
+                      <IconCheck />
+                      保存する
+                    </button>
+                  </form>
+                </details>
               )}
             </li>
           ))}
@@ -88,6 +126,7 @@ export function RulesSection(props: { storeId: string; rules: RuleRow[]; closedD
 export const RULES_QUERY = `
   SELECT r.id, r.rule_no, r.natural_text, r.status, r.origin, r.store_id,
          r.action, r.recipient, r.urgency, r.condition, r.reading, r.unclear,
+         ${scopeStoresSql("r")} AS scope_store_ids,
          k.question, k.asked_at, ks.display_name AS asked_by,
          a.answer, a.answered_at, s.display_name AS answered_by
     FROM rules r
@@ -95,5 +134,6 @@ export const RULES_QUERY = `
     LEFT JOIN staff ks ON ks.id = k.asked_by_staff_id
     LEFT JOIN knowledge_answers a ON a.id = r.origin_answer_id
     LEFT JOIN staff s ON s.id = a.answered_by_staff_id
-   WHERE (r.store_id = ? OR r.store_id IS NULL) AND r.status IN ('candidate', 'active')
+   WHERE ${ruleAppliesSql("r")} AND r.status IN ('candidate', 'active')
    ORDER BY r.rule_no`;
+// RULES_QUERY は店の id を2回 bind する

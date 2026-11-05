@@ -3,7 +3,7 @@
 import { dayLabel } from "../lib/time";
 import { ACTION_LABEL, RECIPIENT_LABEL, URGENCY_LABEL } from "../rules/structure";
 import { IconCheck, IconClock, IconPlay } from "./icons";
-import type { RuleRow } from "./RulesSection";
+import { ScopeChoice, type RuleRow, type StoreOption } from "./RulesSection";
 
 export type DraftRow = {
   id: string;
@@ -36,7 +36,7 @@ export function draftReason(evidence: string | null | undefined): string | null 
   }
 }
 
-export function ApprovalsSection(props: { storeId: string; drafts: DraftRow[]; candidates: RuleRow[]; closedDays?: string | null; sent?: SentRow | null }) {
+export function ApprovalsSection(props: { storeId: string; drafts: DraftRow[]; candidates: RuleRow[]; closedDays?: string | null; sent?: SentRow | null; stores?: StoreOption[] }) {
   const n = props.drafts.length + props.candidates.length;
   return (
     <div class="pane">
@@ -118,16 +118,17 @@ export function ApprovalsSection(props: { storeId: string; drafts: DraftRow[]; c
         </h2>
       )}
       {props.candidates.map((r) => (
-        <CandidateCard storeId={props.storeId} r={r} closedDays={props.closedDays} />
+        <CandidateCard storeId={props.storeId} r={r} closedDays={props.closedDays} stores={props.stores ?? []} />
       ))}
     </div>
   );
 }
 
 // ルール候補の1件(仕様 2章「ルールの入口は2つ」)。承認なしに有効にはならない
-export function CandidateCard(props: { storeId: string; r: RuleRow; closedDays?: string | null }) {
+export function CandidateCard(props: { storeId: string; r: RuleRow; closedDays?: string | null; stores: StoreOption[] }) {
   const r = props.r;
   const fromKnowledge = r.origin === "knowledge";
+  // 既定は、いまの範囲のとおり(引き継ぎ帳の候補は質問が来た店だけ。Claude が全店と読んだものは「全店」)
   return (
     <div class="card">
       <div>
@@ -193,6 +194,7 @@ export function CandidateCard(props: { storeId: string; r: RuleRow; closedDays?:
       <div class="acts">
         <form method="post" action={`/rules/${r.id}/approve`}>
           <input type="hidden" name="store" value={props.storeId} />
+          <ScopeChoice stores={props.stores} checked={new Set(r.store_id ? [r.store_id] : [])} allChecked={r.store_id === null} idPrefix={r.id} />
           <button type="submit" class="btn p">
             <IconCheck />
             承認してルールにする

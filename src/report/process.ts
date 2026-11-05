@@ -18,6 +18,7 @@ import type { Resolver } from "./clarify";
 import type { ModelCall } from "../knowledge/agent";
 import type { RuleDrafter } from "../rules/candidate";
 import { md, ruleOrigin } from "../rules/origin";
+import { ruleAppliesSql } from "../rules/scope";
 import { sourceLabel } from "../knowledge/search";
 import { handleOwnerAnswer, handleQuestion, lookupPerson, type QuestionOutcome } from "../knowledge/handle";
 import { composeReply, leftoverItems, type Structurer, type StructureResult } from "./structure";
@@ -554,8 +555,8 @@ export function ruleReminder(result: Pick<StructureResult, "rule_matches">, rule
   return null;
 }
 
-// 有効な「判断の基準」のルール(全店のものと、この店のもの)。由来の質問と回答も一緒に読む
-async function activeJudgmentRules(db: D1Database, storeId: string): Promise<JudgmentRule[]> {
+// 有効な「判断の基準」のルール(この店に適用されるもの。rules/scope.ts の読み方)。由来の質問と回答も一緒に読む
+export async function activeJudgmentRules(db: D1Database, storeId: string): Promise<JudgmentRule[]> {
   const { results } = await db
     .prepare(
       `SELECT r.id, r.rule_no, r.natural_text, r.origin,
@@ -566,10 +567,10 @@ async function activeJudgmentRules(db: D1Database, storeId: string): Promise<Jud
          LEFT JOIN staff ks ON ks.id = k.asked_by_staff_id
          LEFT JOIN knowledge_answers a ON a.id = r.origin_answer_id
          LEFT JOIN staff s ON s.id = a.answered_by_staff_id
-        WHERE r.status = 'active' AND r.action = 'judgment_basis' AND (r.store_id = ? OR r.store_id IS NULL)
+        WHERE r.status = 'active' AND r.action = 'judgment_basis' AND ${ruleAppliesSql("r")}
         ORDER BY r.rule_no`,
     )
-    .bind(storeId)
+    .bind(storeId, storeId)
     .all<JudgmentRule>();
   return results;
 }

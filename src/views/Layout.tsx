@@ -139,6 +139,15 @@ form.add-rule label{font-size:13px;font-weight:500}
 textarea,select{font:inherit;font-size:13.5px;width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 select{height:34px;padding:0 10px}
 form.add-rule .btn{width:auto;justify-self:start}
+fieldset.scope{border:1px solid var(--line);border-radius:6px;padding:6px 10px 8px;margin:0 0 8px;display:grid;gap:2px;font-size:13px;min-width:0}
+fieldset.scope legend{font-size:12px;color:var(--sub);padding:0 4px}
+fieldset.scope label{display:flex;align-items:center;gap:6px;min-height:26px}
+fieldset.scope input{accent-color:var(--brand);width:15px;height:15px;margin:0}
+details.scope-edit{margin-top:6px}
+details.scope-edit summary{font-size:12.5px;color:var(--brand);cursor:pointer;list-style:none;display:inline-block}
+details.scope-edit summary::-webkit-details-marker{display:none}
+details.scope-edit form{margin-top:6px;max-width:360px;display:grid;gap:6px}
+details.scope-edit .btn{width:auto;justify-self:start}
 code{font-size:12px;word-break:break-all}
 ul.stores{list-style:none;padding:0;margin:0;border:1px solid var(--line);border-radius:8px}
 ul.stores li a{display:block;padding:12px 14px;min-height:44px;border-top:1px solid var(--line);text-decoration:none;color:var(--ink);font-weight:500}

@@ -2,7 +2,7 @@ import { AppShell, Layout, type NavItem } from "./Layout";
 import type { JstDate } from "../lib/time";
 import { ApprovalsSection, DemoPanel, type DraftRow, type SentRow } from "./DraftsSection";
 import { FindingsSection, whenWithWeekday, type FindingRow } from "./FindingsSection";
-import { RulesSection, type RuleRow } from "./RulesSection";
+import { RulesSection, type RuleRow, type StoreOption } from "./RulesSection";
 import { SuppliesSection, type SupplyRow } from "./SuppliesSection";
 import { IconCheck, IconInbox, IconLayoutDashboard, IconListChecks, IconPackage, IconPlay, IconScanSearch } from "./icons";
 
@@ -66,6 +66,7 @@ export type StorePageProps = {
   ownerName?: string | null;
   selectedFindingId?: string | null;
   sent?: SentRow | null;
+  allStores?: StoreOption[]; // 適用する店の選択肢(全店の一覧)
 };
 
 function BoardView(props: { store: StoreRow; board: BoardRow[]; today: JstDate }) {
@@ -129,11 +130,11 @@ export function StorePage(props: StorePageProps) {
 
   const body =
     view === "approvals" ? (
-      <ApprovalsSection storeId={store.id} drafts={drafts} candidates={candidates} closedDays={store.closed_days} sent={props.sent} />
+      <ApprovalsSection storeId={store.id} drafts={drafts} candidates={candidates} closedDays={store.closed_days} sent={props.sent} stores={props.allStores} />
     ) : view === "findings" ? (
       <FindingsSection storeId={store.id} findings={findings} selectedId={props.selectedFindingId} />
     ) : view === "rules" ? (
-      <RulesSection storeId={store.id} rules={rules} closedDays={store.closed_days} />
+      <RulesSection storeId={store.id} rules={rules} closedDays={store.closed_days} stores={props.allStores} />
     ) : view === "supplies" ? (
       <SuppliesSection rows={props.supplies ?? []} />
     ) : view === "demo" ? (

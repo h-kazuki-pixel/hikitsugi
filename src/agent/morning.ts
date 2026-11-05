@@ -4,6 +4,7 @@
 
 import { carryOver } from "../report/board";
 import type { SlackClient } from "../slack/api";
+import { ruleAppliesSql } from "../rules/scope";
 
 const JST = 9 * 60 * 60 * 1000;
 const md = (iso: string) => {
@@ -30,9 +31,9 @@ export async function runMorning(db: D1Database, now: string, deps: { slack: Sla
       .prepare(
         `SELECT (SELECT count(*) FROM findings WHERE store_id = ? AND status = 'active' AND detected_at >= ?) AS findings,
                 (SELECT count(*) FROM drafts WHERE store_id = ? AND status = 'pending') AS drafts,
-                (SELECT count(*) FROM rules WHERE (store_id = ? OR store_id IS NULL) AND status = 'candidate') AS candidates`,
+                (SELECT count(*) FROM rules WHERE ${ruleAppliesSql("rules")} AND status = 'candidate') AS candidates`,
       )
-      .bind(s.id, new Date(Date.parse(`${yesterday}T00:00:00Z`) - JST).toISOString(), s.id, s.id)
+      .bind(s.id, new Date(Date.parse(`${yesterday}T00:00:00Z`) - JST).toISOString(), s.id, s.id, s.id)
       .first<{ findings: number; drafts: number; candidates: number }>();
     const parts: string[] = [];
     if (carried.length) parts.push(`繰り越し: ${carried.map((c) => `${c.name}(${c.carried_from_date ? md(c.carried_from_date) : "?"}から)`).join("、")}`);

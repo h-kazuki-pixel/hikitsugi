@@ -232,7 +232,8 @@ describe("知らない質問 → 確認中 → オーナーに一度だけ → �
 describe("判断の答えはルール候補になり、承認でだけ有効になる(約束2)", () => {
   const page = async (view = "approvals") => (await app.request(`/stores/tenjin?view=${view}`, {}, proxy.env)).text();
   const post = (path: string) =>
-    app.request(path, { method: "POST", body: new URLSearchParams({ store: "tenjin" }), headers: { "content-type": "application/x-www-form-urlencoded" } }, proxy.env);
+    // 承認のとき適用する店を選ぶ(既定どおり、質問が来た店だけ)
+    app.request(path, { method: "POST", body: new URLSearchParams({ store: "tenjin", stores: "tenjin" }), headers: { "content-type": "application/x-www-form-urlencoded" } }, proxy.env);
 
   it("候補は店舗ページに元の質問と答えを添えて出る。まだ有効ではない", async () => {
     const r = await db().prepare("SELECT id, status, origin, action, activated_at FROM rules WHERE rule_no = 6").first<{ id: string }>();
@@ -257,6 +258,7 @@ describe("判断の答えはルール候補になり、承認でだけ有効に�
     // スタッフの質問から生まれたルールは、面談のルールと見分けられるように出す
     expect(html.replace(/<!-- -->/g, "")).toContain("スタッフの質問から: 11/7(土・休業日) みおさんの質問 → 11/8(日) デモオーナーの答え");
     expect(html).toContain("由来: 立ち上げ面談");
+    expect(html).toContain("サンプル自習室 天神店のみ"); // 適用する店(既定のまま)
 
     // 一度決めたものは押し直しても変わらない
     await post(`/rules/${r.id}/reject`);
