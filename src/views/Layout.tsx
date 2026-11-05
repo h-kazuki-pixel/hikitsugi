@@ -139,7 +139,8 @@ form.add-rule label{font-size:13px;font-weight:500}
 textarea,select{font:inherit;font-size:13.5px;width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 select{height:34px;padding:0 10px}
 form.add-rule .btn{width:auto;justify-self:start}
-fieldset.scope{border:1px solid var(--line);border-radius:6px;padding:6px 10px 8px;margin:0 0 8px;display:grid;gap:2px;font-size:13px;min-width:0}
+fieldset.scope{border:1px solid var(--line);border-radius:6px;padding:6px 10px 8px;margin:0 0 8px;display:grid;gap:2px;font-size:13px;min-width:240px}
+.acts form:has(fieldset.scope){flex-direction:column}
 fieldset.scope legend{font-size:12px;color:var(--sub);padding:0 4px}
 fieldset.scope label{display:flex;align-items:center;gap:6px;min-height:26px}
 fieldset.scope input{accent-color:var(--brand);width:15px;height:15px;margin:0}
