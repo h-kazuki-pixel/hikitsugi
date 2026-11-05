@@ -42,7 +42,7 @@ Built with Claude: Japan 2026 / テーマ1「あなたにしかない深さを�
 - **動画**: (11/8 に追加)
 - **demo(架空の店舗・公開)**: https://hikitsugi-demo.h-kazuki.workers.dev/stores/tenjin
   - 店舗の一覧: https://hikitsugi-demo.h-kazuki.workers.dev/
-  - 店舗ページ: 今日のボード(完了・未清掃・繰り越し・要確認と根拠)/ 承認待ちの下書き / 備品切れ(報告から)/ 検出事項と判断経路 / ルール一覧(由来つき)と候補 / デモの操作(入室を模擬する・夜の突き合わせと朝の定時をいま動かす)
+  - 店舗ページは区画ごと(`?view=`。1画面に見どころを1つ): 今日のボード(完了・未清掃・繰り越し・要確認と根拠)/ 承認待ち(声かけの下書きとルール候補のキュー)/ 検出事項(一覧と判断経路の表。担い手を Claude・人の言葉・仕組みで分ける)/ ルール(由来つき。実行しないものは「登録のみ」)/ 備品切れ(報告から)/ デモの操作(入室を模擬する・夜の突き合わせと朝の定時をいま動かす)
   - 数字の画面(demo は架空データ): https://hikitsugi-demo.h-kazuki.workers.dev/stats / Claude の消費: https://hikitsugi-demo.h-kazuki.workers.dev/usage
   - Slack 側(受付・聞き返し・引き継ぎ帳の答え・声かけの DM)はデモ用ワークスペースで動かし、動画で見せる
 - 店舗・スタッフ・質問はすべて架空(「サンプル自習室 天神店 / 薬院店」)。実店舗(production)は 11/4 から西新店で動いている。実店舗のデータは非公開の production 環境にだけある
@@ -390,6 +390,12 @@ seed は `INSERT OR IGNORE` なので、何度流しても同じ結果になる(
 - ワークフローは中身をログに出さない。不正なときも件数だけを出す(手元で確かめるときは `node scripts/build-seed.mjs --production private/production-seed.json private/production-seed.sql --verbose`)
 - Secret は1つ 48KB まで
 
+## 使った外部の素材
+
+- 字: IBM Plex Sans JP(IBM、SIL Open Font License 1.1)。Google Fonts 経由で読み込む
+- アイコン: Lucide(ISC License)。使う分の SVG のパスだけを [src/views/icons.tsx](src/views/icons.tsx) に写した。npm パッケージは入れていない
+- ほかに画面のためのライブラリは足していない(Hono の JSX と CSS だけ)
+
 ## ローカルで動かす
 
 ```bash
@@ -404,7 +410,7 @@ npm run migrate:local && npm run seed:local
 npm run dev
 ```
 
-http://localhost:8787/stores/tenjin を開く。テストは `npm test`、型検査は `npm run typecheck`。
+http://localhost:8787/stores/tenjin を開く(`?view=board|approvals|findings|rules|supplies|demo` で区画を選ぶ)。テストは `npm test`、型検査は `npm run typecheck`。
 
 ## 開発での Claude Code の使い分け
 
