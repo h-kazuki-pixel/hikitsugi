@@ -39,7 +39,7 @@ export function scopeLabel(scope: RuleScope, stores: { id: string; name: string 
  * - 「全店」が入っていれば全店
  * - どの店にもチェックがなければ null(受けない)
  * - 知らない店が混ざっていれば null(受けない)
- * 全部の店に個別にチェックしても「全店」にはしない(これから増える店に効くかが違う。既定は「チェックした店だけ」)
+ * 全部の店に個別にチェックしても「全店」にはしない(11/5 橋本: 店ごとの設備に結びついたルールが、新しい店に勝手に効かないように)
  */
 export function parseScopeChoice(raw: unknown, knownStoreIds: string[]): RuleScope | null {
   const values = (Array.isArray(raw) ? raw : raw == null ? [] : [raw]).filter((v): v is string => typeof v === "string");
