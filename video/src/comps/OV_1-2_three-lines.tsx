@@ -12,7 +12,8 @@ const LINES = [
   "問題 = 全部が一人に集まり、残らない",
 ] as const;
 
-// 自撮りの右下に3行を順に出す。先に出た行は動かず、下に足されていく
+// 自撮りの右上(上から 80px)に3行を順に出す。先に出た行は動かず、下に足されていく。
+// 下から 180px は字幕のために空ける
 export const OV_1_2_three_lines: React.FC = () => {
   const t = T.OV_1_2_three_lines;
   const p0 = useEnter(t.lines[0]);
@@ -22,7 +23,7 @@ export const OV_1_2_three_lines: React.FC = () => {
 
   return (
     <Frame transparent exit={t.exit}>
-      <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "flex-end", padding: 64 }}>
+      <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "flex-end", padding: "80px 64px" }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 16 }}>
           {LINES.map((line, i) => (
             <Pill

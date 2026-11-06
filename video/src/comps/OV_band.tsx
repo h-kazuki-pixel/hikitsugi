@@ -5,7 +5,7 @@ import { SPRING } from "../motion";
 import { BOLD, C, FONT } from "../theme";
 import { T } from "../timings";
 
-// 画面の上の帯。上から spring で降りて、とどまり、上に戻る。背景は透明
+// 画面の上の中央に出す角丸の札。上から spring で降りて、とどまり、上に戻る。背景は透明
 export const BANDS = {
   wed: "水曜日",
   sat: "土曜日・休業日",
@@ -15,7 +15,11 @@ export const BANDS = {
 
 export type BandKey = keyof typeof BANDS;
 
-const HEIGHT = 112;
+const TOP = 48; // 降りきったときの上からの位置
+const FONT_SIZE = 48;
+const PAD_Y = 22;
+const HEIGHT = FONT_SIZE * 1.3 + PAD_Y * 2;
+const HIDDEN_Y = -(TOP + HEIGHT + 8); // 画面の上に隠れる位置
 
 export const OV_band: React.FC<{ text: string }> = ({ text }) => {
   const t = T.OV_band;
@@ -30,22 +34,21 @@ export const OV_band: React.FC<{ text: string }> = ({ text }) => {
     easing: Easing.in(Easing.cubic),
   });
 
-  const y = -HEIGHT * (1 - down) - HEIGHT * up;
+  const y = HIDDEN_Y * (1 - down) + HIDDEN_Y * up;
 
   return (
     <Frame transparent exit={false}>
-      <AbsoluteFill style={{ alignItems: "stretch" }}>
+      <AbsoluteFill style={{ alignItems: "center", paddingTop: TOP }}>
         <div
           style={{
-            height: HEIGHT,
             backgroundColor: C.bg,
             color: C.text,
             fontFamily: FONT,
             fontWeight: BOLD,
-            fontSize: 52,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            fontSize: FONT_SIZE,
+            lineHeight: 1.3,
+            padding: `${PAD_Y}px 40px`,
+            borderRadius: 20,
             translate: `0px ${y}px`,
             whiteSpace: "nowrap",
           }}
