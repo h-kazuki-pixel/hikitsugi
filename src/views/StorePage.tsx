@@ -144,7 +144,7 @@ export function StorePage(props: StorePageProps) {
 
   return (
     <AppShell
-      title={`${store.name} — ${VIEW_LABEL[view]}`}
+      title={`${VIEW_LABEL[view]} - ${store.name}`}
       storeName={store.name}
       crumb={VIEW_LABEL[view]}
       now={whenWithWeekday((props.now ?? new Date()).toISOString())}
