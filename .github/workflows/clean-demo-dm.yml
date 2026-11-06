@@ -1,0 +1,78 @@
+# デモ用ワークスペースの、ボットとの DM を片づける(撮影のやり直し用。手動でだけ動く)
+# Actions → clean-demo-dm → Run workflow。中身は scripts/demo/clean-dm-threads.py
+#
+# - トークンは demo 環境の Secret「SLACK_BOT_TOKEN」、相手のメンバーIDは Secret「DEMO_SLACK_IDS」から読む。
+#   入力欄で選ぶのは役の名前だけなので、実際の ID は入力にもログにも出ない
+# - このリポジトリは公開で、Actions のログは誰でも読める。メッセージの本文は出さず、投稿時刻(日本時間)と種別だけ出す
+# - 既定は確認のみ。「削除する」を選んだときだけ消す。ボット以外の投稿・返信には触れない
+name: clean-demo-dm
+
+on:
+  workflow_dispatch:
+    inputs:
+      who:
+        description: だれとボットの DM を片づけるか
+        required: true
+        type: choice
+        options: [あおい, オーナー, みお, はると, そうた, 副担当]
+      parents:
+        description: ボットが投稿した親メッセージも消す(オーナー側・声かけの DM 用。--parents)
+        type: boolean
+        default: false
+      mode:
+        description: 確認のみ(消す対象を一覧する)/ 削除する
+        required: true
+        type: choice
+        default: 確認のみ
+        options: [確認のみ, 削除する]
+
+permissions:
+  contents: read
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: demo
+    concurrency:
+      group: clean-demo-dm
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: DM を片づける
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          DEMO_SLACK_IDS: ${{ secrets.DEMO_SLACK_IDS }}
+          WHO: ${{ inputs.who }}
+          PARENTS: ${{ inputs.parents }}
+          MODE: ${{ inputs.mode }}
+          HIDE_TEXT: "1"
+        run: |
+          if [ -z "$SLACK_BOT_TOKEN" ]; then
+            echo "::error::demo 環境の Secret「SLACK_BOT_TOKEN」が未登録です"
+            exit 1
+          fi
+          case "$WHO" in
+            あおい) key=aoi ;;
+            オーナー) key=owner ;;
+            みお) key=mio ;;
+            はると) key=haruto ;;
+            そうた) key=sota ;;
+            副担当) key=sub ;;
+            *) echo "::error::知らない名前です: $WHO"; exit 1 ;;
+          esac
+          id=$(printf '%s\n' "$DEMO_SLACK_IDS" | sed -n "s/^[[:space:]]*$key[[:space:]]*=[[:space:]]*\([UW][A-Z0-9]*\)[[:space:]]*\$/\1/p" | head -1)
+          if [ -z "$id" ]; then
+            echo "::error::Secret「DEMO_SLACK_IDS」に $key=U… の行がありません"
+            exit 1
+          fi
+          echo "::add-mask::$id"
+          args=()
+          if [ "$PARENTS" = "true" ]; then args+=(--parents); fi
+          if [ "$MODE" = "削除する" ]; then args+=(--delete); fi
+          echo "対象: ${WHO}とボットの DM / ${args[*]:-確認のみ}"
+          SLACK_USER="$id" python3 scripts/demo/clean-dm-threads.py "${args[@]}"
+          if [ "$MODE" != "削除する" ]; then
+            echo "(Actions で消すときは、同じ選び方で「削除する」にして Run workflow)"
+          fi
