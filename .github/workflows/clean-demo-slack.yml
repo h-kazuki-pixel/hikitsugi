@@ -1,0 +1,56 @@
+# デモ用ワークスペースに残ったボット自身の投稿を消す(撮影のやり直し用。手動でだけ動く)
+# Actions → clean-demo-slack → Run workflow。確認の欄に「demo」と入れたときだけ動く
+#
+# - #天神店 → #薬院店 → ボットとスタッフ・オーナーの DM の順に、スレッドの返信も含めてボットの投稿を消す
+#   (中身は scripts/demo/clean-slack.py)。スタッフ・オーナーの投稿には触れない
+# - D1 には触らない(撮影で作ったルールなどは残る)。reset-demo とは別
+# - 読む Secret は demo 環境の SLACK_BOT_TOKEN と DEMO_SLACK_IDS だけ。production の Secret は読まない
+# - ログは公開なので、本文・ID は出さず件数だけ出す
+name: clean-demo-slack
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: demo の Slack からボットの投稿を消します。よければ「demo」と入れてください
+        required: true
+        type: string
+      dm:
+        description: ボットとスタッフ・オーナーの DM も消す
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: demo
+    concurrency:
+      group: clean-demo-slack
+      cancel-in-progress: false
+    steps:
+      - name: 確認の欄
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "demo" ]; then
+            echo "::error::確認の欄に「demo」と入れてください(何もしませんでした)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+
+      - name: ボットの投稿を消す
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          DEMO_SLACK_IDS: ${{ secrets.DEMO_SLACK_IDS }}
+          CHANNELS_ONLY: ${{ inputs.dm && '0' || '1' }}
+        run: |
+          if [ -z "$SLACK_BOT_TOKEN" ]; then
+            echo "::error::demo 環境の Secret「SLACK_BOT_TOKEN」が未登録です"
+            exit 1
+          fi
+          python3 scripts/demo/clean-slack.py
