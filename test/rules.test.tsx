@@ -71,7 +71,7 @@ describe("POST /stores/:id/rules", () => {
     expect(html).toContain("知らせる / 宛先: 副担当 / 定時");
     expect(html).toContain("有効にしない"); // 引き継ぎ帳の候補の「引き継ぎ帳の答えだけにする」ではない(ほかのテストの候補が同じページに出ることがあるので、無いことは確かめない)
 
-    await app.request(`/rules/${r!.id}/approve`, form({ store: "tenjin" }), env());
+    await app.request(`/rules/${r!.id}/approve`, form({ store: "tenjin", stores: "tenjin" }), env());
     html = await (await app.request("/stores/tenjin?view=approvals", {}, env())).text();
     expect(html).not.toContain("この読み取りで有効にしますか");
     html = await (await app.request("/stores/tenjin?view=rules", {}, env())).text();
