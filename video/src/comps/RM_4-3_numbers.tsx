@@ -80,8 +80,8 @@ export const RM_4_3_numbers: React.FC<NumbersProps> = ({ days, commits, prs, tes
         </div>
       </AbsoluteFill>
 
-      {/* いちばん下の小さな一行 */}
-      <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: 72 }}>
+      {/* 小さな一行。数字の列のすぐ下(下から 180px は字幕のために空ける) */}
+      <AbsoluteFill style={{ alignItems: "center", paddingTop: 760 }}>
         <div style={{ fontSize: SIZE.note, opacity: 0.8, ...enterStyle(bottom, 16) }}>
           人がいない店なら、同じ形で
         </div>

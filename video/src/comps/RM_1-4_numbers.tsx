@@ -93,11 +93,13 @@ export const RM_1_4_numbers: React.FC = () => {
         </svg>
       </AbsoluteFill>
 
-      {/* 右: その時点で残っていた答えで返せたのは → 3件 */}
+      {/* 右: その時点で書き残されていた答えで返せたのは → 3件(主役。「3」は「114」と同じ大きさ) */}
       <AbsoluteFill style={{ justifyContent: "center", alignItems: "flex-start", paddingLeft: 1180 }}>
-        <div style={{ width: 620 }}>
-          <div style={{ fontSize: SIZE.body, lineHeight: 1.45, ...enterStyle(lead) }}>
-            その時点で残っていた
+        <div style={{ width: 640 }}>
+          <div style={{ fontSize: SIZE.body, lineHeight: 1.25, ...enterStyle(lead) }}>
+            その時点で
+            <br />
+            書き残されていた
             <br />
             答えで返せたのは
           </div>
@@ -106,7 +108,7 @@ export const RM_1_4_numbers: React.FC = () => {
               display: "flex",
               alignItems: "baseline",
               gap: 8,
-              marginTop: 4,
+              marginTop: 0,
               color: C.accent,
               opacity: Math.min(1, three * 1.5),
               scale: String(0.7 + 0.3 * three),
@@ -119,10 +121,10 @@ export const RM_1_4_numbers: React.FC = () => {
         </div>
       </AbsoluteFill>
 
-      {/* いちばん下の注記 */}
-      <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: 72 }}>
+      {/* 注記。数字のすぐ下(下から 180px は字幕のために空ける) */}
+      <AbsoluteFill style={{ alignItems: "center", paddingTop: 800 }}>
         <div style={{ fontSize: SIZE.note, opacity: 0.8, ...enterStyle(note, 16) }}>
-          過去の質問を、その時点の答えだけで流し直した結果
+          質問が来たその時点に、書き残されていた答えだけで確かめた
         </div>
       </AbsoluteFill>
     </Frame>
