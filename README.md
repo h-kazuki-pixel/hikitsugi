@@ -1,4 +1,7 @@
-<img src="docs/brand/hikitsugi-lockup.svg" width="300" alt="hikitsugi">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/hikitsugi-lockup-dark.svg">
+  <img src="docs/brand/hikitsugi-lockup.svg" width="300" alt="hikitsugi">
+</picture>
 
 # hikitsugi
 
