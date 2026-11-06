@@ -12,7 +12,9 @@ const css = `
 :root{--side:#161A1F;--bg:#0E1116;--ink:#E6EDF3;--sub:#9DA7B3;--faint:#6E7A87;--line:#2A313A;--hover:#1C222A;
 --brand:#3FB59F;--brand-wash:#12302B;--ai:#A99BF0;--ai-wash:#221C3A;--ai-line:#3D3360;--hu-wash:#12302B;--hu-line:#1F4A41;
 --warn:#F0A04B;--warn-wash:#33230F;--ok:#4CC26A;--ok-wash:#102A18;--danger:#F08B82;--danger-wash:#3A1613;--toast:#E6EDF3}
-.toast{color:#0E1116}.btn.p{color:#0E1116}.nav .n.badge{color:#0E1116}}
+.toast{color:#0E1116}.btn.p{color:#0E1116}.nav .n.badge{color:#0E1116}
+/* ロゴの暗い地の色(帯は白のまま)。ファビコンと docs/brand の画像は変えない */
+svg.logo .lg-book{fill:#14A08D}svg.logo .lg-ribbon{fill:#A898F7}svg.logo .lg-ink{stroke:#FFFFFF}svg.logo .lg-dot{fill:#FFFFFF}}
 *{box-sizing:border-box}html,body{height:100%;margin:0}
 body{font-family:"IBM Plex Sans JP",system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:14px;line-height:1.6;color:var(--ink);background:var(--bg);font-feature-settings:"palt","tnum";-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}
 svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
