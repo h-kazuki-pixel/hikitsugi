@@ -16,12 +16,12 @@ import { OV_1_2_three_lines } from "./comps/OV_1-2_three-lines";
 const frames = (seconds: number) => Math.round(seconds * FPS);
 const size = { fps: FPS, width: WIDTH, height: HEIGHT };
 
-// 背景透明の書き出し既定(ProRes 4444)。scripts/render-all.mjs も同じ値を CLI で渡す
+// 背景透明の書き出し既定(ProRes)。4444 のプロファイルは scripts/render-all.mjs が CLI で渡す。
+// ここで defaultProResProfile を指定すると、VP9 の WebM で書き出すときに弾かれるので書かない
 const transparent = () => ({
   defaultCodec: "prores" as const,
   defaultVideoImageFormat: "png" as const,
   defaultPixelFormat: "yuva444p10le" as const,
-  defaultProResProfile: "4444" as const,
 });
 
 export const RemotionRoot: React.FC = () => {
