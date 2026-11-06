@@ -33,6 +33,19 @@ GitHub → Actions → **reset-demo** → Run workflow。確認の欄に「demo�
 demo の D1 の全テーブルを消し、マイグレーション → 架空の seed → Slack ID の結びつけ → デプロイをやり直す。
 seed の店・人・ルール1〜5・知識10件に戻り、報告・検出・ルール候補・消費の記録は消える。production には流れない。
 
+### Slack の DM を片づける(任意)
+
+reset-demo が戻すのは D1 だけで、Slack のメッセージは残る。引き継ぎ帳の DM(場面2)を撮り直すとき、前のやりとりを画面に残したくなければ:
+
+1. Slack アプリで、あおいがボットに送った質問(スレッドの親)を長押し → 削除する。返信のあるスレッドの親は「このメッセージは削除されました」として残る
+2. 手元の端末で `scripts/demo/clean-dm-threads.py` を動かし、その下に残ったボットの返信を消す。トークンは Slack のアプリ設定(hikitsugi-demo → OAuth & Permissions)の Bot User OAuth Token を、その場で環境変数に入れる(ファイルにもセッションにも置かない)。どの DM かは、相手(あおい)のメンバーID(プロフィール → ︙ → メンバーIDをコピー)を `SLACK_USER` に入れて指定する(DM の ID が分かっていれば `SLACK_CHANNEL` でもよい)
+   ```bash
+   python3 scripts/demo/clean-dm-threads.py            # 確認のみ(消す対象を一覧する)
+   python3 scripts/demo/clean-dm-threads.py --delete   # 実際に消す
+   ```
+   `--all` を付けると、親が残っているスレッドのボットの返信も対象になる。ボット以外(あおい・オーナー)の返信はボットのトークンでは消せないので、件数が出たら Slack アプリで消す
+   使うスコープは im:history・im:write・chat:write(demo のマニフェストにある)。im:read はないので、`SLACK_USER` も `SLACK_CHANNEL` も入れずに動かすと conversations.list が missing_scope で止まる
+
 ## 場面1: 前振り(0:25〜1:15)
 
 ### 1-a 受付と要確認
