@@ -45,6 +45,12 @@ reset-demo が戻すのは D1 だけで、Slack のメッセージは残る。�
    ```
    `--all` を付けると、親が残っているスレッドのボットの返信も対象になる。ボット以外(あおい・オーナー)の返信はボットのトークンでは消せないので、件数が出たら Slack アプリで消す
    使うスコープは im:history・im:write・chat:write(demo のマニフェストにある)。im:read はないので、`SLACK_USER` も `SLACK_CHANNEL` も入れずに動かすと conversations.list が missing_scope で止まる
+3. オーナー側の DM(「【引き継ぎ帳】…」「ルール候補にしました」、場面3の「【サンプル自習室 天神店】ルール6…」)は、親がボットの投稿なので `--parents` を付けて消す。`SLACK_USER` にはオーナーのメンバーIDを入れる
+   ```bash
+   python3 scripts/demo/clean-dm-threads.py --parents            # 確認のみ([親] の行がボットの親メッセージ)
+   python3 scripts/demo/clean-dm-threads.py --parents --delete   # スレッド内のボット返信 → 親の順に消す
+   ```
+   消すのはボット自身の投稿だけで、オーナーの投稿・返信には触れない。オーナーが引き継ぎ帳のスレッドに書いた答えは残り、親は「このメッセージは削除されました」として残るので、案内が出たら Slack アプリでその返信を消す
 
 ## 場面1: 前振り(0:25〜1:15)
 

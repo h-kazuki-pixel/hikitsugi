@@ -3,6 +3,9 @@
 
 既定は確認のみ（何も消さない）。実際に消すときは --delete を付ける。
   --all     親が削除されていないスレッドのボット返信も対象にする
+  --parents ボット自身が投稿した親メッセージも対象にする（オーナー側DMの片づけ用）。
+            返信つきの親は、先にスレッド内のボット返信を消してから親を消す。
+            ボット以外（オーナーなど）の投稿・返信には触れない
 
 環境変数:
   SLACK_BOT_TOKEN  xoxb- で始まるボットトークン（必須）
@@ -27,6 +30,7 @@ if not TOKEN:
     raise SystemExit("SLACK_BOT_TOKEN を設定してください")
 DELETE = "--delete" in sys.argv
 ALL = "--all" in sys.argv
+PARENTS = "--parents" in sys.argv
 
 
 def api(method, **params):
@@ -88,12 +92,20 @@ def is_deleted_parent(m):
     return m.get("subtype") == "tombstone" or m.get("text") == "This message was deleted."
 
 
-targets, others = [], 0
+def is_own_parent(m):
+    # ボット自身のトップレベルの投稿（スレッドの返信をチャンネルにも流したものは除く）
+    return is_bot(m) and m.get("thread_ts", m["ts"]) == m["ts"]
+
+
+targets, parents, others, parent_others = [], [], 0, 0
 for m in paged("conversations.history", "messages", channel=channel):
+    own_parent = PARENTS and is_own_parent(m)
+    if own_parent:
+        parents.append(m)
     if not m.get("reply_count"):
         continue
     deleted = is_deleted_parent(m)
-    if not (deleted or ALL):
+    if not (deleted or ALL or own_parent):
         continue
     for r in paged("conversations.replies", "messages", channel=channel, ts=m["ts"]):
         if r["ts"] == m["ts"]:
@@ -102,19 +114,35 @@ for m in paged("conversations.history", "messages", channel=channel):
             targets.append(r)
         elif deleted:
             others += 1
+        elif own_parent:
+            parent_others += 1
 
 for r in targets:
     print(r["ts"], (r.get("text") or "")[:40].replace("\n", " "))
+for m in parents:
+    print(m["ts"], "[親]", (m.get("text") or "")[:40].replace("\n", " "))
 
 if DELETE:
     print(f"ボットの返信 {len(targets)} 件を削除します")
     for r in targets:
         api("chat.delete", channel=channel, ts=r["ts"])
         time.sleep(1.2)
+    if PARENTS:
+        # スレッド内のボット返信を消し終えてから親を消す
+        print(f"ボットの親メッセージ {len(parents)} 件を削除します")
+        for m in parents:
+            api("chat.delete", channel=channel, ts=m["ts"])
+            time.sleep(1.2)
     print("完了")
 else:
+    if PARENTS:
+        print(f"ボットの親メッセージ {len(parents)} 件")
     print(f"ボットの返信 {len(targets)} 件（確認のみ。消すときは --delete を付けて再実行）")
 
 if others:
     print(f"※ 削除済みスレッドにボット以外の返信が {others} 件あります。"
           "これはボットのトークンでは消せないので、Slackアプリで長押し→削除してください")
+if parent_others:
+    print(f"※ ボットの親メッセージのスレッドに、ボット以外（オーナーなど）の返信が {parent_others} 件あります。"
+          "親を消しても、これらの返信と「このメッセージは削除されました」の表示は残ります。"
+          "ボットのトークンでは消せないので、Slackアプリで長押し→削除してください")
