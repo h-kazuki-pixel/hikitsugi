@@ -55,7 +55,7 @@ export function Wordmark(props: { height: number }) {
   );
 }
 
-// 横組み(viewBox 196.5×64)。height={26} で幅は約 80px
+// 横組み(viewBox 196.5×64)。height={32} で幅は約 98px
 export function Lockup(props: { height: number }) {
   const h = props.height;
   const w = (h * 196.5) / 64;
