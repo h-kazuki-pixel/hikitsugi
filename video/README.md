@@ -52,6 +52,10 @@ gh api -X GET search/issues -f q='repo:h-kazuki-pixel/hikitsugi is:pr is:merged 
 ```
 
 ```bash
-# vitest のテストの数("Tests  143 passed" の数)
+# テストの数は npm test と同じ範囲で、vitest("Tests  143 passed")と node --test("# tests 23")の合計
 npx vitest run
+```
+
+```bash
+node --test scripts/check-commit.test.mjs scripts/ci/apply-demo-slack-ids.test.mjs scripts/build-seed.test.mjs
 ```

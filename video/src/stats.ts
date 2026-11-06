@@ -10,8 +10,11 @@ export const STATS = {
   // マージ済みの PR
   //   gh api -X GET search/issues -f q='repo:h-kazuki-pixel/hikitsugi is:pr is:merged merged:>=2026-11-02T03:00:00Z' --jq .total_count
   prs: 59,
-  // vitest のテストの数(npx vitest run の "Tests  143 passed")
-  tests: 143,
+  // npm test と同じ範囲のテストの数: vitest 143 + node --test 23
+  //   npx vitest run                      → "Tests  143 passed"
+  //   node --test scripts/check-commit.test.mjs scripts/ci/apply-demo-slack-ids.test.mjs scripts/build-seed.test.mjs
+  //                                       → "# tests 23"
+  tests: 166,
   // そのまま
   handWrittenLines: 0,
 } as const;
