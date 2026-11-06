@@ -230,7 +230,7 @@ export function AppShell(props: {
         <div class="app">
           <aside class="side">
             <a class="ws" href="/" aria-label="店舗の一覧へ">
-              <Lockup height={26} />
+              <Lockup height={32} />
               <small>
                 {props.storeName} <IconChevronDown size={13} />
               </small>
