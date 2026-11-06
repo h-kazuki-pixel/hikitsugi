@@ -159,7 +159,7 @@ main.plain .meta{margin-bottom:0}
 
 /* ---- スマホ幅(〜1023px): サイドバーは上の横スクロールのタブに、2ペインは縦積みに */
 @media (max-width: 1023px){
-.app{grid-template-columns:1fr}
+.app{grid-template-columns:1fr;grid-template-rows:auto 1fr} /* 上の帯は中身の高さだけ。残りは本文に回す(行が余白を分け合わないように) */
 .side{position:static;height:auto;flex-direction:row;align-items:center;overflow-x:auto;padding:6px 10px;border-right:0;border-bottom:1px solid var(--line);gap:2px}
 .side .ws{padding:4px 8px 4px 2px}.side .ws small{display:none}
 .side .grp,.side .sp,.side .me{display:none}
