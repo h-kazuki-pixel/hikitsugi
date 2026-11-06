@@ -1,0 +1,30 @@
+{
+  "name": "hikitsugi-video",
+  "version": "0.1.0",
+  "description": "デモ動画の部品(Remotion)。Workers 本体とは別のパッケージ",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24"
+  },
+  "scripts": {
+    "dev": "remotion studio --no-open",
+    "typecheck": "tsc --noEmit",
+    "render": "node scripts/render-all.mjs",
+    "stills": "node scripts/render-all.mjs --stills-only",
+    "postinstall": "node scripts/fetch-fonts.mjs",
+    "fonts": "node scripts/fetch-fonts.mjs"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.541",
+    "@remotion/fonts": "4.0.541",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.541"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/web": "0.0.166",
+    "typescript": "5.9.3"
+  }
+}
