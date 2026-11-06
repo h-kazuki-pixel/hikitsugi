@@ -19,6 +19,7 @@ import { demo } from "./routes/demo";
 import { usage } from "./routes/usage";
 import { stats } from "./routes/stats";
 import { NotFoundPage } from "./views/StorePage";
+import { FAVICON_SVG } from "./views/brand";
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -30,6 +31,8 @@ app.route("/", drafts);
 app.route("/", demo);
 app.route("/", usage);
 app.route("/", stats);
+// ファビコン(docs/brand/favicon.svg と同じ)。絵は変わらないので長めにキャッシュする
+app.get("/favicon.svg", (c) => c.body(FAVICON_SVG, 200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=604800" }));
 app.notFound((c) => c.html(<NotFoundPage />, 404));
 
 // 引き継ぎ帳のエージェントが使う Claude 呼び出し(テストでは差し替える)

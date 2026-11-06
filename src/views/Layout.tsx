@@ -1,5 +1,6 @@
 import type { Child } from "hono/jsx";
 import { IconBot, IconChartColumn, IconChevronDown } from "./icons";
+import { Lockup } from "./brand";
 
 // 見た目の決まり(30): 色と字は :root のトークンに一か所で持つ。グラデーションなし、影はトーストだけ。
 // 字は IBM Plex Sans JP(SIL OFL 1.1、Google Fonts 経由)。アイコンは Lucide(ISC)を icons.tsx に写した
@@ -11,10 +12,13 @@ const css = `
 :root{--side:#161A1F;--bg:#0E1116;--ink:#E6EDF3;--sub:#9DA7B3;--faint:#6E7A87;--line:#2A313A;--hover:#1C222A;
 --brand:#3FB59F;--brand-wash:#12302B;--ai:#A99BF0;--ai-wash:#221C3A;--ai-line:#3D3360;--hu-wash:#12302B;--hu-line:#1F4A41;
 --warn:#F0A04B;--warn-wash:#33230F;--ok:#4CC26A;--ok-wash:#102A18;--danger:#F08B82;--danger-wash:#3A1613;--toast:#E6EDF3}
-.toast{color:#0E1116}.hk{color:#0E1116}.btn.p{color:#0E1116}.nav .n.badge{color:#0E1116}}
+.toast{color:#0E1116}.btn.p{color:#0E1116}.nav .n.badge{color:#0E1116}
+/* ロゴの暗い地の色(帯は白のまま)。ファビコンと docs/brand の画像は変えない */
+svg.logo .lg-book{fill:#14A08D}svg.logo .lg-ribbon{fill:#A898F7}svg.logo .lg-ink{stroke:#FFFFFF}svg.logo .lg-dot{fill:#FFFFFF}}
 *{box-sizing:border-box}html,body{height:100%;margin:0}
 body{font-family:"IBM Plex Sans JP",system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:14px;line-height:1.6;color:var(--ink);background:var(--bg);font-feature-settings:"palt","tnum";-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}
 svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.logo{stroke-linecap:butt;stroke-linejoin:miter}
 a{color:var(--brand)}
 :focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 h1{font-size:20px;font-weight:600;margin:0 0 6px;line-height:1.35}
@@ -24,9 +28,8 @@ h2{font-size:13.5px;font-weight:600;margin:0}
 /* ---- アプリの枠 */
 .app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
 .side{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:12px 10px;position:sticky;top:0;height:100vh}
-.ws{display:flex;align-items:center;gap:9px;padding:6px 8px 14px;text-decoration:none;color:inherit}
-.hk{width:26px;height:26px;border-radius:6px;background:var(--brand);color:#fff;font-weight:600;font-size:12px;display:flex;align-items:center;justify-content:center;letter-spacing:.02em;flex:none}
-.ws b{display:block;font-size:13.5px;font-weight:600;line-height:1.2}.ws small{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--sub)}
+.ws{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:6px 8px 14px;text-decoration:none;color:inherit}
+.ws small{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--sub)}
 .grp{font-size:11.5px;color:var(--faint);font-weight:500;padding:12px 8px 4px}
 .nav{display:flex;align-items:center;gap:9px;height:32px;padding:0 8px;border-radius:6px;color:var(--sub);text-decoration:none;font-size:13.5px;white-space:nowrap}
 .nav:hover{background:var(--hover)}
@@ -184,7 +187,8 @@ function Head(props: { title: string }) {
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       <meta name="robots" content="noindex" />
-      <title>{props.title}</title>
+      <title>{props.title} - hikitsugi</title>
+      <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
       <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -226,13 +230,10 @@ export function AppShell(props: {
         <div class="app">
           <aside class="side">
             <a class="ws" href="/" aria-label="店舗の一覧へ">
-              <div class="hk">hk</div>
-              <div>
-                <b>hikitsugi</b>
-                <small>
-                  {props.storeName} <IconChevronDown size={13} />
-                </small>
-              </div>
+              <Lockup height={26} />
+              <small>
+                {props.storeName} <IconChevronDown size={13} />
+              </small>
             </a>
             <div class="grp">店舗</div>
             {props.items.map((it) => (

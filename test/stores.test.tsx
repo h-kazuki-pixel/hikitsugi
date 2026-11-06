@@ -6,6 +6,10 @@ import { demoEnv } from "./helpers";
 let proxy: Awaited<ReturnType<typeof demoEnv>>;
 beforeAll(async () => {
   proxy = await demoEnv();
+  // 天神店の今日のボードを空にしてから始める。前のテストファイル(夜の突き合わせ・引き継ぎ帳)が固定日や実際の時刻で報告を入れると、
+  // その日が「今日」のときだけボードに行が残り、「今日のボードはまだありません」が通らなくなる(11/6 に実際に起きた)。
+  // ボードは今の店の状態を映す表で、報告の原本(追記のみ)ではないので消してよい
+  await proxy.env.DB.prepare("DELETE FROM board_items WHERE store_id = 'tenjin' AND date = ?").bind(jstDate().iso).run();
 });
 afterAll(async () => {
   await proxy?.dispose();
