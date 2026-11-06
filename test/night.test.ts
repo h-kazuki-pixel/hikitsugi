@@ -50,6 +50,7 @@ const BODY = "おつかれさま!今日も天神店に来てくれてありが�
 
 describe("夜の突き合わせ", () => {
   let draftId = "";
+  let findingId = "";
 
   it("報告のない入室だけを、下書きのルールで検出する。間違った呼び出しはコードが断る", async () => {
     await entry("e_aoi", "staff_aoi", jst(D1, "18:00"));
@@ -103,6 +104,7 @@ describe("夜の突き合わせ", () => {
     expect(d).toMatchObject({ status: "pending", recipient_type: "staff" });
     expect(d!.body).toBe(`${BODY}\n(デモオーナー)`);
     draftId = d!.id;
+    findingId = out.findings[0]!.findingId;
   });
 
   it("同じ入室は二度検出しない", async () => {
@@ -117,7 +119,8 @@ describe("夜の突き合わせ", () => {
     const html = await (await app.request("/stores/tenjin", {}, proxy.env)).text();
     expect(html).toContain("承認待ちの下書き");
     expect(html).toContain("あおいさんへの声かけ");
-    const findings = await (await app.request("/stores/tenjin?view=findings", {}, proxy.env)).text();
+    // 自分が作った検出事項を id で開く(新しい順の先頭に頼らない。ほかのテストが実際の時刻で入れた検出が先頭に来ても通るように)
+    const findings = await (await app.request(`/stores/tenjin?view=findings&id=${findingId}`, {}, proxy.env)).text();
     expect(findings).toContain("報告が届いていない");
     expect(findings).toContain("ルール2に該当");
     // 判断経路の担い手: ツールの読み取りは Claude(ツール)、ルールの選択は Claude
