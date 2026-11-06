@@ -12,6 +12,7 @@
   SLACK_CHANNEL    D で始まるDMのID（任意）
   SLACK_USER       DMの相手のメンバーID（任意。SLACK_CHANNEL の代わりに、相手からDMを開いて探す）
   どちらも未指定なら、ボットのDMを自動で探す（DMが1件だけのとき）
+  HIDE_TEXT        1 なら本文を出さず、投稿時刻（日本時間）と種別だけ出す（公開の Actions のログ用）
 
 必要なスコープ: im:history, chat:write
   SLACK_USER を使うなら im:write、自動で探すなら im:read も要る
@@ -31,6 +32,7 @@ if not TOKEN:
 DELETE = "--delete" in sys.argv
 ALL = "--all" in sys.argv
 PARENTS = "--parents" in sys.argv
+HIDE_TEXT = os.environ.get("HIDE_TEXT") == "1"
 
 
 def api(method, **params):
@@ -117,10 +119,20 @@ for m in paged("conversations.history", "messages", channel=channel):
         elif own_parent:
             parent_others += 1
 
+def jst(ts):
+    return time.strftime("%m/%d %H:%M", time.gmtime(float(ts) + 9 * 3600))
+
+
 for r in targets:
-    print(r["ts"], (r.get("text") or "")[:40].replace("\n", " "))
+    if HIDE_TEXT:
+        print(jst(r["ts"]), "返信")
+    else:
+        print(r["ts"], (r.get("text") or "")[:40].replace("\n", " "))
 for m in parents:
-    print(m["ts"], "[親]", (m.get("text") or "")[:40].replace("\n", " "))
+    if HIDE_TEXT:
+        print(jst(m["ts"]), "[親]")
+    else:
+        print(m["ts"], "[親]", (m.get("text") or "")[:40].replace("\n", " "))
 
 if DELETE:
     print(f"ボットの返信 {len(targets)} 件を削除します")
