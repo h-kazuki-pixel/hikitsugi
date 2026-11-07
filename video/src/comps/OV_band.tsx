@@ -7,9 +7,8 @@ import { T } from "../timings";
 
 // 画面の上の中央に出す角丸の札。上から spring で降りて、とどまり、上に戻る。背景は透明
 export const BANDS = {
-  wed: "水曜日",
   sat: "土曜日・休業日",
-  "next-week": "次の週",
+  "other-staff": "別のスタッフ",
   "own-store": "11/4 から、自分の店で",
 } as const;
 

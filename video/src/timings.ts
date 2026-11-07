@@ -22,25 +22,25 @@ export const T = {
     exit: false,
   },
 
-  // 2. 一行
+  // 2. 一行(語りの「答えが、自分の頭の中に…」に間に合うよう、後半は 1.2 秒以内に入る)
   RM_1_3_line: {
-    duration: 7.0,
-    first: 0.3, // 「答えが、」
-    second: 1.5, // 「自分の頭の中にしか残っていない」
+    duration: 5.98,
+    first: 0.2, // 「答えが、」
+    second: 1.0, // 「自分の頭の中にしか残っていない」
     exit: true,
   },
 
-  // 3. 質問の数
+  // 3. 質問の数(数え上げは 0.8 秒で終え、「3件」は 3.5 秒までに入る。語りの「3件だけでした」は 6 秒台)
   RM_1_4_numbers: {
-    duration: 7.8,
+    duration: 8.0,
     label: 0.2, // 「質問」
-    countStart: 0.5, // 0 から数え始める
-    countLength: 1.0, // 114 まで
-    period: 1.8, // 「約2年」
-    arrow: 2.5, // 矢印が伸びる
-    lead: 3.1, // 「その時点で残っていた答えで返せたのは」
-    three: 4.3, // 「3件」
-    note: 5.3, // いちばん下の注記
+    countStart: 0.4, // 0 から数え始める
+    countLength: 0.8, // 114 まで
+    period: 1.5, // 「約2年」
+    arrow: 2.0, // 矢印が伸びる
+    lead: 2.5, // 「その時点で書き残されていた答えで返せたのは」
+    three: 3.3, // 「3件」
+    note: 4.5, // 注記
     exit: true,
   },
 
@@ -54,7 +54,7 @@ export const T = {
 
   // 5. 同じ一文
   RM_2_11_same_words: {
-    duration: 7.0,
+    duration: 6.28,
     photos: 0.15, // 写真2枚
     labels: 0.5, // 上の小さな札
     leftBox: 1.6, // 左の枠
@@ -65,7 +65,7 @@ export const T = {
 
   // 6. 数字5つ
   RM_4_3_numbers: {
-    duration: 10.0,
+    duration: 9.11,
     first: 0.3, // 1つ目
     step: 0.42, // 2つ目以降の間隔
     top: 3.6, // 上の一行
@@ -83,11 +83,11 @@ export const T = {
 
   // 8. デモ用の札(背景透明)
   OV_demo_label: {
-    duration: 120.0, // 2分。収録の長さに合わせて変える
+    duration: 85.88, // 収録の長さ(実測)
     exit: false,
   },
 
-  // 9. 上の帯(背景透明)。4本とも同じ秒
+  // 9. 上の札(背景透明)。3本とも同じ秒
   OV_band: {
     duration: 4.0,
     stay: 3.2, // 降りきってからとどまる長さ。入りの約0.5秒 + 3.2秒で上に戻り始める
@@ -97,16 +97,16 @@ export const T = {
 
   // 10. 凡例(背景透明)
   OV_2_12_legend: {
-    duration: 15.5,
+    duration: 15.33,
     first: 0.0,
-    second: 9.0,
+    second: 9.21,
     exit: true,
   },
 
   // 11. 3行(背景透明)
   OV_1_2_three_lines: {
-    duration: 15.7,
-    lines: [0.0, 4.5, 10.7],
+    duration: 17.23,
+    lines: [0.0, 4.93, 11.38],
     exit: true,
   },
 } as const;
@@ -118,17 +118,16 @@ export const compId = (name: string) => name.replace(/_/g, "-");
 // 各カットの見どころ(静止画を書き出す秒)。scripts/render-all.mjs が読む。鍵は部品の名前
 export const STILL_AT: Record<string, number> = {
   "RM_1-1_logo": 2.6,
-  "RM_1-3_line": 3.5,
-  "RM_1-4_numbers": 6.0,
+  "RM_1-3_line": 3.0,
+  "RM_1-4_numbers": 5.5,
   "RM_1-5_title": 1.8,
   "RM_2-11_same-words": 3.6,
   "RM_4-3_numbers": 6.5,
   "RM_4-4_end": 2.0,
   "OV_demo-label": 1.0,
-  "OV_band_wed": 1.5,
   "OV_band_sat": 1.5,
-  "OV_band_next-week": 1.5,
+  "OV_band_other-staff": 1.5,
   "OV_band_own-store": 1.5,
   "OV_2-12_legend": 10.5,
-  "OV_1-2_three-lines": 12.0,
+  "OV_1-2_three-lines": 12.5,
 };
