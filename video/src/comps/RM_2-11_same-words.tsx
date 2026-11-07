@@ -118,7 +118,7 @@ export const RM_2_11_same_words: React.FC<SameWordsProps> = ({ left, right, phot
         <div style={{ display: "flex", gap: 80 }}>
           <Shot
             photo={left}
-            label="土曜日・オーナーの答え"
+            label="オーナーの答え(あおいさんへ)"
             width={photoWidth}
             height={photoHeight}
             photoIn={photoL}
@@ -128,7 +128,7 @@ export const RM_2_11_same_words: React.FC<SameWordsProps> = ({ left, right, phot
           />
           <Shot
             photo={right}
-            label="次の週・はるとさんへの返事"
+            label="はるとさんへの返事"
             width={photoWidth}
             height={photoHeight}
             photoIn={photoR}
