@@ -1,0 +1,157 @@
+# 取り込み直し(使い捨て): 処理されずに捨てられた店舗チャンネルの投稿を、いつもの報告の処理に流し直す
+# Actions → backfill-slack → Run workflow。確認の欄に環境名を入れたときだけ動く(手動のみ)
+#
+# 11/7 7:00 から実店舗の Slack トークンを入れ替えた間、#西新店 の清掃報告が処理されずに捨てられた。その取り込み直しのために作った。
+#
+# - このワークフローは Worker のキューに backfill のジョブを1つ積むだけ。履歴の取得(conversations.history)・判定・記録は
+#   Worker の中で行う(src/report/backfill.ts)。Slack のトークンも投稿の本文も、Actions には来ない
+# - 判定は元の送信時刻(ts)。スタッフへのスレッド返事もオーナーへの DM も送らない(記録だけ)
+# - 二度流しても1件のまま(記録済みの投稿は飛ばす)。時間帯を広めに取ってもよい
+# - 公開リポジトリなので、チャンネル ID はログに出さない(入力をイベントのファイルから読み、すぐ ::add-mask:: をかける。
+#   inputs.channel は式で書かない。run の中に式で書くと、展開後のスクリプトとしてログに出る)
+# - 先に、このコードを入れた Worker をその環境にデプロイしておくこと。古い Worker に届いたジョブは何もせずに終わる
+#   (古い consumer は夜の突き合わせとして「__backfill__」という店を探し、見つからないので終わる)
+# - 結果は Worker のログ(Cloudflare の Observability で "job":"backfill" の行。件数だけ)と店舗ページで確かめる
+# - 使うのはリポジトリの Secrets の CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID だけ(Queues: 編集 の権限)
+name: backfill-slack
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 取り込み直す環境
+        type: choice
+        options: [production, demo]
+        default: production
+      confirm:
+        description: 確認のため、上で選んだ環境名(production / demo)をもう一度入れてください
+        required: true
+        type: string
+      channel:
+        description: 店舗チャンネルの ID(C… か G…。ログには出しません)
+        required: true
+        type: string
+      from:
+        description: 始まり(日本時間。例 2026-11-07 07:00)
+        required: true
+        type: string
+      to:
+        description: 終わり(日本時間。例 2026-11-07 15:00。空ならいま)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: backfill-slack-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      TARGET_ENV: ${{ inputs.environment }}
+    steps:
+      # チャンネル ID はイベントのファイルから読み、最初にマスクする(以降のログでは *** になる)
+      - name: 入力を確かめる
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          FROM_JST: ${{ inputs.from }}
+          TO_JST: ${{ inputs.to }}
+        run: |
+          set -euo pipefail
+          channel=$(jq -r '.inputs.channel // ""' "$GITHUB_EVENT_PATH" | tr -d '[:space:]')
+          if [ -z "$channel" ]; then
+            echo "::error::チャンネル ID が空です"
+            exit 1
+          fi
+          echo "::add-mask::$channel"
+          if [ "$CONFIRM" != "$TARGET_ENV" ]; then
+            echo "::error::確認の欄が「$TARGET_ENV」ではないので止めました(何もしていません)"
+            exit 1
+          fi
+          if ! printf '%s' "$channel" | grep -Eq '^[CG][A-Z0-9]{6,}$'; then
+            echo "::error::チャンネル ID の形が違います(C… か G… の英大文字と数字。DM は扱いません)"
+            exit 1
+          fi
+          pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$'
+          if ! printf '%s' "$FROM_JST" | grep -Eq "$pattern"; then
+            echo "::error::始まりは「2026-11-07 07:00」の形で入れてください(日本時間)"
+            exit 1
+          fi
+          oldest=$(date -d "$FROM_JST +0900" +%s)
+          if [ -z "$TO_JST" ]; then
+            latest=$(date +%s)
+          elif printf '%s' "$TO_JST" | grep -Eq "$pattern"; then
+            latest=$(date -d "$TO_JST +0900" +%s)
+          else
+            echo "::error::終わりは「2026-11-07 15:00」の形で入れてください(日本時間)。空ならいまになります"
+            exit 1
+          fi
+          if [ "$oldest" -ge "$latest" ]; then
+            echo "::error::始まりが終わりより後になっています"
+            exit 1
+          fi
+          # Worker 側の上限(BACKFILL_MAX_WINDOW_SEC)と同じ
+          if [ $((latest - oldest)) -gt $((3 * 24 * 60 * 60)) ]; then
+            echo "::error::時間帯は3日以内にしてください"
+            exit 1
+          fi
+          {
+            echo "BACKFILL_CHANNEL=$channel"
+            echo "BACKFILL_OLDEST=$oldest"
+            echo "BACKFILL_LATEST=$latest"
+          } >> "$GITHUB_ENV"
+          echo "時間帯: $(TZ=Asia/Tokyo date -d "@$oldest" '+%Y-%m-%d %H:%M') 〜 $(TZ=Asia/Tokyo date -d "@$latest" '+%Y-%m-%d %H:%M')(日本時間)"
+
+      - uses: actions/checkout@v5
+
+      # _deploy.yml と同じく、貼り付けで入った前後の空白・改行を取り除いてから使う
+      - name: Cloudflare の資格情報を確かめる
+        env:
+          RAW_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RAW_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          token=$(printf '%s' "$RAW_TOKEN" | tr -d '[:space:]')
+          account=$(printf '%s' "$RAW_ACCOUNT" | tr -d '[:space:]')
+          if [ -z "$token" ] || [ -z "$account" ]; then
+            echo "::error::GitHub Secrets に CLOUDFLARE_API_TOKEN と CLOUDFLARE_ACCOUNT_ID を登録してください"
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "::add-mask::$account"
+          echo "CLOUDFLARE_API_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "CLOUDFLARE_ACCOUNT_ID=$account" >> "$GITHUB_ENV"
+
+      - name: キューに取り込み直しのジョブを積む
+        run: |
+          set -euo pipefail
+          API=https://api.cloudflare.com/client/v4
+          queue_name=$(python3 -c 'import sys, tomllib; print(tomllib.load(open("wrangler.toml", "rb"))["env"][sys.argv[1]]["queues"]["producers"][0]["queue"])' "$TARGET_ENV")
+          queues=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/queues?per_page=100")
+          queue_id=$(printf '%s' "$queues" | jq -r --arg q "$queue_name" '.result[]? | select(.queue_name == $q) | .queue_id' | head -1)
+          if [ -z "$queue_id" ]; then
+            echo "::error::キュー「$queue_name」が見つかりません($(printf '%s' "$queues" | jq -r '[.errors[]? | "\(.code): \(.message)"] | join(" / ")'))"
+            exit 1
+          fi
+          # slot / storeId は、古い Worker に届いたときに何もせずに終わらせるための殻(src/report/backfill.ts)
+          body=$(jq -n --arg channel "$BACKFILL_CHANNEL" --arg oldest "$BACKFILL_OLDEST" --arg latest "$BACKFILL_LATEST" \
+            '{content_type: "json", body: {type: "backfill", channel: $channel, oldest: $oldest, latest: $latest, slot: "night", storeId: "__backfill__"}}')
+          res=$(curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" \
+            --data "$body" "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/queues/$queue_id/messages")
+          if [ "$(printf '%s' "$res" | jq -r '.success')" != "true" ]; then
+            echo "::error::キューに積めませんでした($(printf '%s' "$res" | jq -r '[.errors[]? | "\(.code): \(.message)"] | join(" / ")'))。トークンに「Queues: 編集」の権限があるか確かめてください"
+            exit 1
+          fi
+          {
+            echo "### 取り込み直しのジョブを積みました($TARGET_ENV)"
+            echo ""
+            echo "- 時間帯: $(TZ=Asia/Tokyo date -d "@$BACKFILL_OLDEST" '+%Y-%m-%d %H:%M') 〜 $(TZ=Asia/Tokyo date -d "@$BACKFILL_LATEST" '+%Y-%m-%d %H:%M')(日本時間)"
+            echo "- スタッフへの返事・オーナーへの DM は送りません。記録だけです"
+            echo "- 結果: Cloudflare → Workers & Pages → hikitsugi-$TARGET_ENV → Observability で \`\"job\":\"backfill\"\` の行(件数だけ)。店舗ページのボードにも出ます"
+            echo "- \`backfill\` の行が出なければ、その環境の Worker がまだこの機能の入る前のコードです(ジョブは何もせずに終わります)。デプロイしてから流し直してください"
+            echo "- 二度流しても1件のままです(記録済みの投稿は飛ばします)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "キューに積みました"
