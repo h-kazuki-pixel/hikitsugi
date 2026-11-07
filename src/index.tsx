@@ -11,7 +11,8 @@ import { jstDate } from "./lib/time";
 import { recordUsage } from "./lib/usage";
 import { claudeStructurer } from "./report/structure";
 import { claudeRuleChecker } from "./report/rulecheck";
-import { slackClient } from "./slack/api";
+import { slackClient, slackHistory } from "./slack/api";
+import { runBackfill } from "./report/backfill";
 import { slack } from "./routes/slack";
 import { stores } from "./routes/stores";
 import { drafts } from "./routes/drafts";
@@ -76,6 +77,23 @@ export default {
             slack: slackClient(env.SLACK_BOT_TOKEN),
           });
           console.log(JSON.stringify({ job: job.type, id: msg.id, outcome }));
+        } else if (job.type === "backfill") {
+          // 取り込み直し(src/report/backfill.ts)。Slack には何も送らない。ログは件数だけ(チャンネル ID・本文は出さない)
+          if (!env.ANTHROPIC_API_KEY || !env.SLACK_BOT_TOKEN) {
+            console.error("ANTHROPIC_API_KEY か SLACK_BOT_TOKEN が未設定のため、取り込み直しを行えません");
+            msg.ack();
+            continue;
+          }
+          const out = await runBackfill(env.DB, job, {
+            structure: claudeStructurer(env.ANTHROPIC_API_KEY),
+            checkRules: claudeRuleChecker(env.ANTHROPIC_API_KEY),
+            resolve: claudeResolver(env.ANTHROPIC_API_KEY),
+            agent: modelCall(env.ANTHROPIC_API_KEY),
+            draftRule: claudeRuleDrafter(env.ANTHROPIC_API_KEY),
+            slack: slackClient(env.SLACK_BOT_TOKEN),
+            history: slackHistory(env.SLACK_BOT_TOKEN),
+          });
+          console.log(JSON.stringify({ job: "backfill", id: msg.id, ...(out.ok ? { summary: out.summary } : { refused: out.reason }) }));
         } else if (job.slot === "night") {
           if (!env.ANTHROPIC_API_KEY) {
             console.error("ANTHROPIC_API_KEY が未設定のため、夜の突き合わせを行えません");

@@ -2,10 +2,12 @@
 // 秘密情報は wrangler secret で入る(GitHub Secrets → ワークフロー)。今日の時点では未設定でもよい。
 
 import type { ReportEvent } from "./channels/report-event";
+import type { BackfillJob } from "./report/backfill";
 
 export type Job =
   | { type: "cron"; slot: "morning" | "night"; scheduledAt: string; storeId?: string } // storeId: デモの手動実行で1店舗だけ回す
-  | { type: "report_event"; event: ReportEvent };
+  | { type: "report_event"; event: ReportEvent }
+  | BackfillJob; // 取り込み直し(使い捨て。GitHub Actions の backfill-slack から積む)
 
 export type Env = {
   ENVIRONMENT: "demo" | "production";

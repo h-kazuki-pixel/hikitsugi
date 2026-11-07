@@ -31,6 +31,9 @@ export type ProcessDeps = {
   draftRule: RuleDrafter; // 判断の答えからルール候補の文面を下書きする
   slack: SlackClient;
   newId?: () => string;
+  // 取り込み直し(src/report/backfill.ts)のときは、質問を引き継ぎ帳に回さない。
+  // オーナーに聞けない(DM を送らない)まま「確認中」の質問だけが積まれ、答えの宛先もないため
+  backfill?: boolean;
 };
 
 export type ProcessOutcome =
@@ -152,7 +155,7 @@ export async function processReportEvent(db: D1Database, ev: ReportEvent, deps: 
   const hasTrouble = result.categories.includes("request_trouble") || !!result.trouble;
   // 質問は引き継ぎ帳へ(報告と質問の両方に当たる投稿は両方)
   const askQuestion = async () =>
-    result.categories.includes("question")
+    result.categories.includes("question") && !deps.backfill
       ? handleQuestion(db, ev, { slack: deps.slack, agent: deps.agent, draftRule: deps.draftRule, newId }, {
           store: await storeRow(db, store.id),
           sender: await lookupPerson(db, ev.senderRef),

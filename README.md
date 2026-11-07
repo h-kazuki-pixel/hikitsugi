@@ -306,6 +306,7 @@ GitHub Actions で行う。秘密情報はリポジトリにもセッション�
 | [test](.github/workflows/test.yml) | PR ごと、デプロイの前 | 型検査とテスト |
 | [deploy-demo](.github/workflows/deploy-demo.yml) | main への push(マージ)、手動 | テスト → D1 マイグレーション → 架空の seed → デプロイ → 秘密情報 → 動作確認(`/stores/tenjin` が 200) |
 | [deploy-production](.github/workflows/deploy-production.yml) | **手動のみ** | 確認入力 → テスト → D1 マイグレーション → デプロイ → 秘密情報 → 動作確認(ログインなしの `/` が 403、Access の設定後は 302)。Access の設定がなければ初回デプロイとして続ける。seed は流さない |
+| [backfill-slack](.github/workflows/backfill-slack.yml) | **手動のみ**(使い捨て) | 処理されずに捨てられた店舗チャンネルの投稿を取り込み直す(11/7 のトークン入れ替えの間の #西新店 のため)。入力はチャンネル ID と時間帯(日本時間)。キューにジョブを1つ積み、Worker が `conversations.history` で取り直して、いつもの報告の処理に流す([src/report/backfill.ts](src/report/backfill.ts))。判定は元の送信時刻(ts)。スタッフへの返事・オーナーへの DM は送らず、質問は引き継ぎ帳に回さない。記録済みの投稿は飛ばすので二度流しても1件のまま。チャンネル ID・本文はログに出さない |
 
 seed は `INSERT OR IGNORE` なので、何度流しても同じ結果になる(既にある行は上書きしない)。
 
