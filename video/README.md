@@ -39,10 +39,11 @@ Remotion のコンポジション ID には `_` が使えないので、Studio �
 - `RM_4-3_numbers`: 数字5つ(既定値は `src/stats.ts`)
 - `OV_2-12_legend`: `screenTheme` に `"light"` か `"dark"`(収録した画面の表示に合わせる)
 
-## 数字の数え方(2026-11-02 12:00 JST から、2026-11-06 に数えた)
+## 数字の数え方(2026-11-02 12:00 JST から、2026-11-07 の #63 マージ時点まで)
 
 ```bash
-# コミット数(main、マージコミットを除く)。含めると 128
+# コミット数(main、マージコミットを除く)。含めると 172
+# 前に書いた 76 は、履歴の一部しかない clone で数えた誤り。数えるときは git fetch --unshallow してから
 git rev-list origin/main --count --no-merges --since='2026-11-02T12:00:00+09:00'
 ```
 
@@ -52,7 +53,7 @@ gh api -X GET search/issues -f q='repo:h-kazuki-pixel/hikitsugi is:pr is:merged 
 ```
 
 ```bash
-# テストの数は npm test と同じ範囲で、vitest("Tests  143 passed")と node --test("# tests 23")の合計
+# テストの数は npm test と同じ範囲で、vitest("Tests  149 passed")と node --test("# tests 23")の合計
 npx vitest run
 ```
 
