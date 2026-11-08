@@ -29,7 +29,7 @@ const Stat: React.FC<{
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        width: 340,
+        padding: "0 8px",
         color: accent ? C.accent : C.text,
         opacity: Math.min(1, p * 1.5),
         translate: `0px ${(1 - p) * 36}px`,
@@ -71,8 +71,8 @@ export const RM_4_3_numbers: React.FC<NumbersProps> = ({ days, commits, prs, tes
 
       {/* 数字5つ */}
       <AbsoluteFill style={{ justifyContent: "center", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: 24, marginTop: 40 }}>
-          <Stat value={days} unit="日" p={p0} />
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 36, marginTop: 40 }}>
+          <Stat value={days} unit="日" caption="11/2〜11/7" p={p0} />
           <Stat value={commits} unit="コミット" p={p1} />
           <Stat value={prs} unit="PR" p={p2} />
           <Stat value={tests} unit="テスト" p={p3} />
