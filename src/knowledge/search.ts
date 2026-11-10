@@ -5,6 +5,8 @@
 // (同じ質問で二度オーナーに聞かないため)。
 // asOf を渡すと、その時刻までに人が答えた内容だけを返す(過去の質問の流し直しで使う)。
 
+import { ruleAppliesSql } from "../rules/scope";
+
 export type KnowledgeHit = {
   id: string; // 知識は knowledge.id、ルールは "rule:" + rules.id
   source_type: "knowledge" | "rule";
@@ -68,9 +70,9 @@ export async function searchKnowledge(
          LEFT JOIN knowledge k ON k.id = r.origin_knowledge_id
          LEFT JOIN knowledge_answers a ON a.id = r.origin_answer_id
          LEFT JOIN staff s ON s.id = a.answered_by_staff_id
-        WHERE r.status = 'active' AND (r.store_id = ? OR r.store_id IS NULL) AND coalesce(r.activated_at, '') <= ?`,
+        WHERE r.status = 'active' AND ${ruleAppliesSql("r")} AND coalesce(r.activated_at, '') <= ?`,
     )
-    .bind(storeId, asOf)
+    .bind(storeId, storeId, asOf)
     .all<{ id: string; rule_no: number; natural_text: string; origin: string; activated_at: string | null; question: string | null; answered_by: string | null; answered_at: string | null }>();
 
   const ruleHits: KnowledgeHit[] = rules.map((r) => ({

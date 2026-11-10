@@ -10,6 +10,7 @@ DROP TABLE IF EXISTS knowledge_waiters;
 DROP TABLE IF EXISTS clarifications;
 DROP TABLE IF EXISTS drafts;
 DROP TABLE IF EXISTS findings;
+DROP TABLE IF EXISTS rule_stores;
 DROP TABLE IF EXISTS rules;
 DROP TABLE IF EXISTS knowledge_answers;
 DROP TABLE IF EXISTS knowledge;
